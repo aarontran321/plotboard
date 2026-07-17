@@ -13,6 +13,7 @@ export type ActionState =
 interface Props {
   selected: PlayerDef | null;
   hasRoute: boolean;
+  hasAnyRoutes: boolean;
   canUndo: boolean;
   canRedo: boolean;
   disabled: boolean;
@@ -21,6 +22,7 @@ interface Props {
   exportState: ActionState;
   onPreset: (preset: RoutePresetId) => void;
   onClearRoute: () => void;
+  onResetAllRoutes: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onShare: () => void;
@@ -44,6 +46,7 @@ function Status({ state }: { state: ActionState }) {
 export default function RightPanel({
   selected,
   hasRoute,
+  hasAnyRoutes,
   canUndo,
   canRedo,
   disabled,
@@ -52,6 +55,7 @@ export default function RightPanel({
   exportState,
   onPreset,
   onClearRoute,
+  onResetAllRoutes,
   onUndo,
   onRedo,
   onShare,
@@ -68,11 +72,11 @@ export default function RightPanel({
           {selected ? (
             <>
               <p className="text-[14px] font-semibold text-[#E5E7EB]">
-                {selected.team === "offense" ? "Offense" : "Defense"} — {selected.label}
+                {isQB ? "Quarterback Selected" : `${selected.team === "offense" ? "Offense" : "Defense"} — ${selected.label}`}
               </p>
-              <p className="mt-1 text-[12px] text-[#6B7280]">
+              <p className={`mt-1 text-[12px] ${isQB ? "italic text-[#F97316]" : "text-[#6B7280]"}`}>
                 {isQB
-                  ? "Click a receiver's route to set the pass target."
+                  ? "Click anywhere along a receiver's route (the dotted/colored lines) on the field to set the pass target!"
                   : selected.team === "offense"
                     ? "Drag on the field to draw a route."
                     : "Drag to adjust this defender's alignment."}
@@ -97,9 +101,14 @@ export default function RightPanel({
             </Button>
           ))}
         </div>
-        <Button disabled={!canRoute || !hasRoute} onClick={onClearRoute} variant="danger">
-          Clear Route
-        </Button>
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button disabled={!canRoute || !hasRoute} onClick={onClearRoute} variant="danger">
+            Clear Route
+          </Button>
+          <Button disabled={disabled || !hasAnyRoutes} onClick={onResetAllRoutes} variant="danger">
+            Reset All Routes
+          </Button>
+        </div>
       </Section>
 
       <Section title="Undo / Redo">

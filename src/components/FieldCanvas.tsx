@@ -81,6 +81,10 @@ export default function FieldCanvas({
   const interactionRef = useRef<Interaction>({ kind: "none" });
   const draftRef = useRef<Point[] | null>(null);
   const fieldCacheRef = useRef<HTMLCanvasElement | null>(null);
+  /** Ghost-target cursor position while the QB is selected and idle. */
+  const hoverTargetRef = useRef<Point | null>(null);
+  /** Marching-dash phase for the QB throw guides. */
+  const qbDashRef = useRef(0);
 
   // --- Sizing -------------------------------------------------------------
 
@@ -141,13 +145,17 @@ export default function FieldCanvas({
   const draw = useCallback(() => {
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    const { play: p, selectedId: sel } = latest.current;
+    const { play: p, selectedId: sel, isPlaying: playing } = latest.current;
 
     drawScene(ctx, viewRef.current, {
       play: p,
       sim: simRef.current?.sim ?? null,
       selectedId: sel,
       draftRoute: draftRef.current,
+      qbGuide:
+        sel === "QB" && !playing
+          ? { dashOffset: qbDashRef.current, hoverTarget: hoverTargetRef.current }
+          : null,
       background: fieldCacheRef.current,
     });
   }, []);
@@ -186,6 +194,22 @@ export default function FieldCanvas({
     return () => cancelAnimationFrame(raf);
   }, [isPlaying, draw]);
 
+  // A deliberate, narrow exception to "no animation while idle": the QB throw
+  // guides march to read as interactive discoverability hints, not decoration.
+  // Scoped to QB selection only, so an idle board otherwise holds no frame.
+  useEffect(() => {
+    if (isPlaying || selectedId !== "QB") return;
+
+    let raf = 0;
+    const tick = () => {
+      qbDashRef.current = (qbDashRef.current + 0.35) % 1000;
+      draw();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isPlaying, selectedId, draw]);
+
   // --- Interaction --------------------------------------------------------
 
   const pointerToWorld = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -221,6 +245,34 @@ export default function FieldCanvas({
     [play.routes]
   );
 
+  /**
+   * With the quarterback selected, a click on a receiver's route sets the pass
+   * target rather than starting a route for the quarterback himself. Returns
+   * whether the click was consumed as a target placement.
+   */
+  const tryPlaceQBTarget = useCallback(
+    (world: Point, before: Snapshot) => {
+      const hit = routePointAt(world);
+      if (!hit) return false;
+      onCommit(before);
+      onPlayChange({
+        ...play,
+        passTarget: { x: hit.point.x, y: hit.point.y, receiverId: hit.receiverId, t: hit.t },
+      });
+      return true;
+    },
+    [play, routePointAt, onCommit, onPlayChange]
+  );
+
+  const startRoute = (
+    player: { id: string; startX: number; startY: number },
+    world: Point,
+    before: Snapshot
+  ) => {
+    draftRef.current = [{ x: player.startX, y: player.startY }, world];
+    interactionRef.current = { kind: "route", id: player.id, before };
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (isPlaying) return;
 
@@ -229,9 +281,22 @@ export default function FieldCanvas({
 
     const world = pointerToWorld(e);
     const before = snapshot(play);
+    // Moving an already-selected player requires a modifier, since a bare
+    // click-drag on it is claimed for drawing/extending its route instead.
+    const wantsMove = e.shiftKey || e.altKey;
 
     const hitId = playerAt(world);
     if (hitId) {
+      const player = play.players.find((p) => p.id === hitId)!;
+      const alreadySelected = hitId === selectedId;
+
+      if (alreadySelected && !wantsMove && player.team === "offense") {
+        if (player.id === "QB" && tryPlaceQBTarget(world, before)) return;
+        startRoute(player, world, before);
+        e.currentTarget.setPointerCapture(e.pointerId);
+        return;
+      }
+
       onSelect(hitId);
       interactionRef.current = { kind: "drag", id: hitId, before };
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -244,28 +309,25 @@ export default function FieldCanvas({
       return;
     }
 
-    // With the quarterback selected, a click on a receiver's route sets the
-    // pass target rather than starting a route for the quarterback himself.
-    if (selected.id === "QB") {
-      const hit = routePointAt(world);
-      if (hit) {
-        onCommit(before);
-        onPlayChange({
-          ...play,
-          passTarget: { x: hit.point.x, y: hit.point.y, receiverId: hit.receiverId, t: hit.t },
-        });
-        return;
-      }
-    }
+    if (selected.id === "QB" && tryPlaceQBTarget(world, before)) return;
 
-    draftRef.current = [{ x: selected.startX, y: selected.startY }, world];
-    interactionRef.current = { kind: "route", id: selected.id, before };
+    startRoute(selected, world, before);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const interaction = interactionRef.current;
-    if (interaction.kind === "none") return;
+    if (interaction.kind === "none") {
+      if (!isPlaying && selectedId === "QB") {
+        const hit = routePointAt(pointerToWorld(e));
+        hoverTargetRef.current = hit ? hit.point : null;
+        draw();
+      } else if (hoverTargetRef.current) {
+        hoverTargetRef.current = null;
+        draw();
+      }
+      return;
+    }
 
     const raw = pointerToWorld(e);
     const world = clampToField(raw.x, raw.y);
@@ -351,6 +413,12 @@ export default function FieldCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={endInteraction}
         onPointerCancel={endInteraction}
+        onPointerLeave={() => {
+          if (hoverTargetRef.current) {
+            hoverTargetRef.current = null;
+            draw();
+          }
+        }}
         className="block w-full touch-none border border-[#1F2937]"
         style={{ cursor: isPlaying ? "default" : "crosshair" }}
       />

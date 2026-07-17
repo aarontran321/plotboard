@@ -264,13 +264,41 @@ export function drawPassTarget(ctx: Ctx, v: View, target: PassTarget) {
   ctx.restore();
 }
 
+/** A small five-pointed star, used as the QB's badge. Fill only, no glow. */
+function drawStar(ctx: Ctx, cx: number, cy: number, r: number, color: string) {
+  const spikes = 5;
+  const step = Math.PI / spikes;
+  const inner = r * 0.45;
+
+  ctx.save();
+  ctx.beginPath();
+  let rot = -Math.PI / 2;
+  ctx.moveTo(cx + Math.cos(rot) * r, cy + Math.sin(rot) * r);
+  for (let i = 0; i < spikes; i++) {
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * inner, cy + Math.sin(rot) * inner);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * r, cy + Math.sin(rot) * r);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 0.75;
+  ctx.strokeStyle = "#78350F";
+  ctx.stroke();
+  ctx.restore();
+}
+
+const QB_GOLD = "#EAB308";
+
 export function drawPlayer(
   ctx: Ctx,
   v: View,
   pos: Point,
   label: string,
   team: "offense" | "defense",
-  selected: boolean
+  selected: boolean,
+  isQB = false
 ) {
   const cx = pos.x * v.scale;
   const cy = pos.y * v.scale;
@@ -278,18 +306,28 @@ export function drawPlayer(
 
   ctx.save();
 
+  // The QB is the anchor of the play, so it gets a second, outer gold ring —
+  // set apart from the selection ring, which uses the same yellow family.
+  if (isQB) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = QB_GOLD;
+    ctx.stroke();
+  }
+
   // Flat body with a crisp white ring. No shadow, no gradient.
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = team === "offense" ? COLORS.offense : COLORS.defense;
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = COLORS.nodeBorder;
+  ctx.lineWidth = isQB ? 2.5 : 2;
+  ctx.strokeStyle = isQB ? QB_GOLD : COLORS.nodeBorder;
   ctx.stroke();
 
   if (selected) {
     ctx.beginPath();
-    ctx.arc(cx, cy, r + 3.5, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r + (isQB ? 8.5 : 3.5), 0, Math.PI * 2);
     ctx.lineWidth = 2;
     ctx.strokeStyle = COLORS.selected;
     ctx.stroke();
@@ -300,13 +338,15 @@ export function drawPlayer(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   let size = r * 0.92;
-  ctx.font = `700 ${size}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.font = `${isQB ? 800 : 700} ${size}px ui-sans-serif, system-ui, sans-serif`;
   const maxWidth = r * 1.7;
   if (ctx.measureText(label).width > maxWidth) {
     size *= maxWidth / ctx.measureText(label).width;
-    ctx.font = `700 ${size}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.font = `${isQB ? 800 : 700} ${size}px ui-sans-serif, system-ui, sans-serif`;
   }
   ctx.fillText(label, cx, cy);
+
+  if (isQB) drawStar(ctx, cx + r * 0.85, cy - r * 0.85, r * 0.36, QB_GOLD);
 
   ctx.restore();
 }
@@ -382,6 +422,46 @@ export function drawBanner(ctx: Ctx, v: View, text: string) {
   ctx.restore();
 }
 
+/**
+ * Thin dashed lines from the QB to each active receiver's route start,
+ * signalling that a click anywhere along those lines drops the pass target.
+ * `dashOffset` marches the dashes to read as "live" while the QB is selected.
+ */
+export function drawQBThrowGuides(ctx: Ctx, v: View, qb: Point, starts: Point[], dashOffset: number) {
+  ctx.save();
+  ctx.setLineDash([5, 5]);
+  ctx.lineDashOffset = -dashOffset;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(249,115,22,0.4)";
+  for (const start of starts) {
+    ctx.beginPath();
+    ctx.moveTo(qb.x * v.scale, qb.y * v.scale);
+    ctx.lineTo(start.x * v.scale, start.y * v.scale);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** A faint orange "ghost" marker tracking the cursor near a valid route. */
+export function drawGhostTarget(ctx: Ctx, v: View, point: Point) {
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.beginPath();
+  ctx.arc(point.x * v.scale, point.y * v.scale, 1.15 * v.scale, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.target;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "#FFFFFF";
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Marching-dash state for the QB throw guides, only meaningful while the QB is selected. */
+export interface QBGuideOptions {
+  dashOffset: number;
+  hoverTarget: Point | null;
+}
+
 export interface SceneOptions {
   play: PlayState;
   /** Live positions during playback; when null, players sit at their alignment. */
@@ -389,6 +469,8 @@ export interface SceneOptions {
   selectedId: string | null;
   /** In-progress route being drawn, rendered before it is committed. */
   draftRoute: Point[] | null;
+  /** Present only while the QB is selected and the play is idle. */
+  qbGuide?: QBGuideOptions | null;
   /**
    * A pre-rendered field to blit instead of re-stroking every yard line and
    * hash mark. The field only changes when the view resizes, so callers that
@@ -398,7 +480,7 @@ export interface SceneOptions {
 }
 
 export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
-  const { play, sim, selectedId, draftRoute, background } = opts;
+  const { play, sim, selectedId, draftRoute, qbGuide, background } = opts;
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
   else drawField(ctx, v);
@@ -415,12 +497,27 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     drawRoute(ctx, v, draftRoute, COLORS.selected);
   }
 
+  if (qbGuide) {
+    const qb = play.players.find((p) => p.id === "QB");
+    if (qb) {
+      const starts = Object.entries(play.routes)
+        .filter(([id, pts]) => id !== "QB" && pts && pts.length >= 2)
+        .map(([id]) => play.players.find((p) => p.id === id))
+        .filter((p): p is NonNullable<typeof p> => Boolean(p))
+        .map((p) => ({ x: p.startX, y: p.startY }));
+      if (starts.length > 0) {
+        drawQBThrowGuides(ctx, v, { x: qb.startX, y: qb.startY }, starts, qbGuide.dashOffset);
+      }
+    }
+    if (qbGuide.hoverTarget) drawGhostTarget(ctx, v, qbGuide.hoverTarget);
+  }
+
   if (play.passTarget) drawPassTarget(ctx, v, play.passTarget);
 
   for (const p of play.players) {
     const pos = sim ? sim.players[p.id] : { x: p.startX, y: p.startY };
     if (!pos) continue;
-    drawPlayer(ctx, v, pos, p.label, p.team, p.id === selectedId);
+    drawPlayer(ctx, v, pos, p.label, p.team, p.id === selectedId, p.id === "QB");
   }
 
   if (sim?.ball) drawBall(ctx, v, sim.ball);

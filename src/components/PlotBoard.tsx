@@ -180,6 +180,18 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     });
   };
 
+  const hasAnyRoutes = Object.keys(play.routes).length > 0;
+
+  const onResetAllRoutes = () => {
+    // Only offensive players ever hold a route, but filter explicitly rather
+    // than assuming — this is the one place that clears everyone at once.
+    const offenseIds = new Set(play.players.filter((p) => p.team === "offense").map((p) => p.id));
+    const routes = Object.fromEntries(
+      Object.entries(play.routes).filter(([id]) => !offenseIds.has(id))
+    );
+    edit({ ...play, routes, passTarget: null });
+  };
+
   const onTogglePlay = () => {
     if (isPlaying) {
       setIsPlaying(false);
@@ -370,8 +382,9 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           </div>
 
           <p className="text-[12px] leading-relaxed text-[#6B7280]">
-            Click a player to select. Drag a player to move them. With a receiver selected, drag on
-            open field to draw a route. Select the QB, then click along a receiver&apos;s route to
+            Click a player to select. Drag an unselected player to move them; once selected,
+            dragging from the player instead draws their route — hold Shift or Alt to move a
+            selected player instead. Select the QB, then click along a receiver&apos;s route to
             place the pass target.
           </p>
         </main>
@@ -379,6 +392,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         <RightPanel
           selected={selected}
           hasRoute={hasRoute}
+          hasAnyRoutes={hasAnyRoutes}
           canUndo={canUndo}
           canRedo={canRedo}
           disabled={locked}
@@ -387,6 +401,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           exportState={exportState}
           onPreset={onPreset}
           onClearRoute={onClearRoute}
+          onResetAllRoutes={onResetAllRoutes}
           onUndo={undo}
           onRedo={redo}
           onShare={onShare}
