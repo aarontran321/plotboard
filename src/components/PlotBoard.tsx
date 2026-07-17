@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sharePlay } from "@/app/actions";
 import { buildFormation } from "@/lib/formations";
+import { flattenPath, pointAtT } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
 import { History, restore, snapshot, type Snapshot } from "@/lib/history";
+import { loadPlayLocal, savePlayLocal } from "@/lib/localPlays";
 import { serializePlayState } from "@/lib/playSchema";
 import { buildPresetRoute } from "@/lib/routePresets";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -13,18 +15,51 @@ import FieldCanvas from "./FieldCanvas";
 import LeftPanel from "./LeftPanel";
 import RightPanel, { type ActionState } from "./RightPanel";
 
+/**
+ * The board is never empty on first load: it boots with a Go/Slant/Curl combo
+ * and a target already placed, so Simulate does something meaningful before the
+ * user has drawn anything.
+ */
 export function createDefaultPlay(): PlayState {
+  const players = buildFormation("shotgun-spread");
+  const at = (id: string) => {
+    const p = players.find((x) => x.id === id)!;
+    return { x: p.startX, y: p.startY };
+  };
+
+  const routes = {
+    WR1: buildPresetRoute("go", at("WR1")),
+    WR2: buildPresetRoute("curl", at("WR2")),
+    TE: buildPresetRoute("slant", at("TE")),
+  };
+
+  // Drop the target three-quarters of the way down the go route.
+  const path = flattenPath(routes.WR1);
+  const spot = pointAtT(path, 0.75);
+
   return {
     formation: "shotgun-spread",
     coverage: "man",
-    players: buildFormation("shotgun-spread"),
-    routes: {},
-    passTarget: null,
+    players,
+    routes,
+    passTarget: { x: spot.x, y: spot.y, receiverId: "WR1", t: 0.75 },
   };
 }
 
-export default function PlotBoard({ initialPlay }: { initialPlay?: PlayState }) {
+interface PlotBoardProps {
+  /** A play resolved server-side from the database. */
+  initialPlay?: PlayState;
+  /**
+   * A share id the database did not have. The play may still be in this
+   * browser's local storage, from a share that fell back when the cloud write
+   * failed.
+   */
+  fallbackId?: string;
+}
+
+export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [play, setPlay] = useState<PlayState>(() => initialPlay ?? createDefaultPlay());
+  const [missingShare, setMissingShare] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -86,27 +121,29 @@ export default function PlotBoard({ initialPlay }: { initialPlay?: PlayState }) 
     syncHistory();
   }, [play, syncHistory]);
 
-  // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, ignoring keystrokes aimed at form fields.
+  /*
+   * A share link the server could not resolve may still be saved in this
+   * browser, from a share that fell back when the cloud write failed.
+   *
+   * This reads an external store (localStorage) after mount, which is exactly
+   * what an effect is for. It cannot move into a `useState` initialiser: that
+   * runs during SSR too, where `localStorage` does not exist, and seeding it
+   * client-side only would desync hydration from the server-rendered board.
+   * Runs once — `fallbackId` is fixed for the lifetime of the route.
+   */
+  /* eslint-disable react-hooks/set-state-in-effect -- see note above */
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const target = e.target as HTMLElement | null;
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-      if (locked) return;
-
-      const key = e.key.toLowerCase();
-      if (key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if (key === "y" || (key === "z" && e.shiftKey)) {
-        e.preventDefault();
-        redo();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undo, redo, locked]);
+    if (!fallbackId || initialPlay) return;
+    const local = loadPlayLocal(fallbackId);
+    if (local) {
+      setPlay(local);
+      historyRef.current.clear();
+      syncHistory();
+    } else {
+      setMissingShare(true);
+    }
+  }, [fallbackId, initialPlay, syncHistory]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const onFormation = (formation: FormationId) => {
     // A new formation moves everyone, which would orphan existing routes.
@@ -158,29 +195,94 @@ export default function PlotBoard({ initialPlay }: { initialPlay?: PlayState }) 
     setResetId((v) => v + 1);
   };
 
-  const onShare = async () => {
-    setShareState({ status: "busy", message: "Saving play…" });
-    try {
-      const result = await sharePlay(serializePlayState(play));
-      if (!result.ok) {
-        setShareState({ status: "error", message: result.error });
+  /*
+   * Keyboard shortcuts. Space/R/Esc mirror the bindings this project already
+   * established; Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z drive history.
+   *
+   * Declared after the handlers it calls, since a dependency array referencing
+   * a `const` defined further down would evaluate before initialisation.
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+
+      const key = e.key.toLowerCase();
+
+      if (e.ctrlKey || e.metaKey) {
+        if (locked) return;
+        if (key === "z" && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+        } else if (key === "y" || (key === "z" && e.shiftKey)) {
+          e.preventDefault();
+          redo();
+        }
         return;
       }
 
-      const url = `${window.location.origin}/play/${result.id}`;
-      try {
-        await navigator.clipboard.writeText(url);
-        setShareState({ status: "done", message: `Link copied — ${url}` });
-      } catch {
-        // Clipboard access needs a secure context and can be denied outright,
-        // so fall back to showing the link rather than losing it.
-        setShareState({ status: "done", message: `Saved — ${url}` });
+      if (e.altKey || e.shiftKey) return;
+
+      if (key === " " || key === "spacebar") {
+        if (isExporting) return;
+        // Space would otherwise scroll the page or re-trigger a focused button.
+        e.preventDefault();
+        onTogglePlay();
+      } else if (key === "r") {
+        if (isExporting) return;
+        e.preventDefault();
+        onReset();
+      } else if (key === "escape") {
+        setSelectedId(null);
       }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  /** Copies text, tolerating a denied or unavailable clipboard. */
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Clipboard needs a secure context and can be denied outright.
+      return false;
+    }
+  };
+
+  const onShare = async () => {
+    setShareState({ status: "busy", message: "Saving play…" });
+
+    let remoteError: string | null = null;
+    try {
+      const result = await sharePlay(serializePlayState(play));
+      if (result.ok) {
+        const url = `${window.location.origin}/play/${result.id}`;
+        const copied = await copy(url);
+        setShareState({ status: "done", message: `${copied ? "Link copied" : "Saved"} — ${url}` });
+        return;
+      }
+      remoteError = result.error;
     } catch (err) {
+      remoteError = err instanceof Error ? err.message : "Sharing failed.";
+    }
+
+    // The database write failed. Save locally rather than lose the play — the
+    // link still works, just only in this browser.
+    try {
+      const id = savePlayLocal(play);
+      const url = `${window.location.origin}/play/${id}`;
+      const copied = await copy(url);
       setShareState({
-        status: "error",
-        message: err instanceof Error ? err.message : "Sharing failed.",
+        status: "done",
+        message:
+          `Cloud save failed (${remoteError}). Saved to this browser instead — ` +
+          `${copied ? "link copied" : url}. The link only opens here.`,
       });
+    } catch {
+      setShareState({ status: "error", message: remoteError ?? "Sharing failed." });
     }
   };
 
@@ -236,6 +338,13 @@ export default function PlotBoard({ initialPlay }: { initialPlay?: PlayState }) 
         />
 
         <main className="flex flex-col gap-3">
+          {missingShare && (
+            <div className="border border-[#4B5563] bg-[#1F2937] px-3 py-2 text-[12px] text-[#FCA5A5]">
+              That shared play isn&apos;t in the database, and isn&apos;t saved in this browser.
+              Showing a fresh board instead.
+            </div>
+          )}
+
           <div className="relative border border-[#1F2937] bg-[#111827] p-2">
             <FieldCanvas
               play={play}

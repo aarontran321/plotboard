@@ -31,7 +31,11 @@ Open http://localhost:3000.
 - **Simulate Play** runs it. The QB releases once the target receiver is ~30%
   through the route; the ball flies a real parabolic arc and whoever is closest
   to the landing spot makes the play.
-- **Ctrl+Z** undo, **Ctrl+Y** / **Ctrl+Shift+Z** redo.
+**Shortcuts:** **Space** play/pause · **R** reset · **Esc** deselect · **Ctrl+Z**
+undo · **Ctrl+Y** / **Ctrl+Shift+Z** redo.
+
+> Picking this up cold? Read [`HANDOFF.md`](HANDOFF.md) first — architecture,
+> what's verified, what isn't, and the traps.
 
 ## Supabase setup (required for Share Play)
 
@@ -42,11 +46,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://tzoibhhxcbrncxdonrvd.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-**The `plays` table does not exist yet.** Until it does, Share Play will report
-`Could not find the table 'public.plays'`. Everything else works without it.
+**The `plays` table does not exist yet.** Until it does, Share Play falls back to
+`localStorage`: the play is saved and the link works, but only in the browser that
+created it. Nothing is lost either way.
 
-To create it, run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase
-dashboard under **SQL Editor → New query**.
+To enable real sharing, run [`supabase/schema.sql`](supabase/schema.sql) in the
+Supabase dashboard under **SQL Editor → New query**.
 
 > **Security note.** That schema grants `anon` both select and insert, so the
 > table is world-writable by anyone holding the publishable key — and that key

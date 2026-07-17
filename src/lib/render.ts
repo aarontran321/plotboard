@@ -10,8 +10,9 @@ import {
   yardNumberAt,
   type View,
 } from "./field";
+import { zoneAssignments } from "./formations";
 import { toQuadSegments } from "./geometry";
-import type { BallState, PassTarget, PlayState, Point, SimState } from "./types";
+import type { BallState, PassTarget, PlayState, Point, SimState, ZoneAssignment } from "./types";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -205,6 +206,31 @@ function drawRouteCap(ctx: Ctx, v: View, points: Point[], color: string) {
   ctx.restore();
 }
 
+/**
+ * Zone landmarks and their radii, so a Cover 2 / Cover 3 shell is legible
+ * rather than implied. Kept solid-but-translucent — opacity, not blur.
+ */
+export function drawZones(ctx: Ctx, v: View, zones: Record<string, ZoneAssignment>) {
+  ctx.save();
+  for (const zone of Object.values(zones)) {
+    const cx = zone.x * v.scale;
+    const cy = zone.y * v.scale;
+    const r = zone.radius * v.scale;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(239,68,68,0.10)";
+    ctx.fill();
+
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(248,113,113,0.40)";
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
 export function drawPassTarget(ctx: Ctx, v: View, target: PassTarget) {
   const cx = target.x * v.scale;
   const cy = target.y * v.scale;
@@ -376,6 +402,9 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
   else drawField(ctx, v);
+
+  // Zone shells sit under everything else; man coverage has no landmarks.
+  if (play.coverage !== "man") drawZones(ctx, v, zoneAssignments(play.coverage));
 
   for (const [id, pts] of Object.entries(play.routes)) {
     if (!pts || pts.length < 2) continue;
