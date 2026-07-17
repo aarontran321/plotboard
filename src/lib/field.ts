@@ -87,6 +87,11 @@ export const ROUTE_HANDLE_GAP = 0.9;
 /** A player must be within this of the landing spot to make a play on the ball. */
 export const CATCH_RADIUS = 2.2;
 
+/**
+ * The realistic-turf palette. Player/route/UI accent colours are shared across
+ * themes; only the field surface itself (grass, endzone, line colours) changes
+ * for the chalkboard theme below, so tokens stay equally readable either way.
+ */
 export const COLORS = {
   grass: "#14532D",
   grassStripe: "#12492A",
@@ -94,20 +99,50 @@ export const COLORS = {
   line: "#F8FAFC",
   lineSoft: "#CBD5E1",
   offense: "#2563EB",
+  offenseLight: "#93C5FD",
+  offenseDark: "#1E3A8A",
   defense: "#DC2626",
+  defenseLight: "#FCA5A5",
+  defenseDark: "#7F1D1D",
   nodeBorder: "#FFFFFF",
   selected: "#FACC15",
   target: "#F97316",
   ball: "#8B4513",
   los: "#60A5FA",
   routeOffense: "#E2E8F0",
-  /** Boundary-violation feedback. Flat fill only — this project forbids glows. */
+  /** Boundary-violation feedback: a pulsing red glow ring. */
   warning: "#EF4444",
   /** The passing lane guide, once a target is placed — kept distinct from the
    *  gold selection ring and the orange target so the three never blend. */
   passingLane: "#38BDF8",
   deflected: "#FB923C",
+  possession: "#FACC15",
 } as const;
+
+/** A colour palette shaped like `COLORS`, widened to plain strings so a theme can override individual entries. */
+export type Palette = Record<keyof typeof COLORS, string>;
+
+/**
+ * The "coach's chalkboard" theme: a slate/charcoal board with chalky
+ * off-white lines instead of painted turf. Swapped in for `COLORS` only where
+ * the field surface itself is drawn (`drawField`) — player tokens, routes and
+ * UI accents are deliberately unchanged, so the same play reads identically
+ * on either board.
+ */
+export const CHALK_COLORS: Palette = {
+  ...COLORS,
+  grass: "#1E2530",
+  grassStripe: "#232B38",
+  endzone: "#141A24",
+  line: "#F1F5F9",
+  lineSoft: "#8B97AC",
+};
+
+export type FieldTheme = "turf" | "chalkboard";
+
+export function paletteForTheme(theme: FieldTheme): Palette {
+  return theme === "chalkboard" ? CHALK_COLORS : COLORS;
+}
 
 /** Maps world yards to screen pixels for a canvas of a given CSS width. */
 export interface View {

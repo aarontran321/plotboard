@@ -1,5 +1,6 @@
 "use client";
 
+import type { FieldTheme } from "@/lib/field";
 import {
   COVERAGE_LABELS,
   DEFENSE_FORMATION_LABELS,
@@ -14,12 +15,14 @@ interface Props {
   coverage: CoverageId;
   speed: number;
   drawMode: boolean;
+  theme: FieldTheme;
   disabled: boolean;
   onFormation: (f: FormationId) => void;
   onDefenseFormation: (d: DefenseFormationId) => void;
   onCoverage: (c: CoverageId) => void;
   onSpeed: (s: number) => void;
   onDrawMode: (on: boolean) => void;
+  onTheme: (t: FieldTheme) => void;
 }
 
 const FORMATIONS = Object.keys(FORMATION_LABELS) as FormationId[];
@@ -32,12 +35,14 @@ export default function LeftPanel({
   coverage,
   speed,
   drawMode,
+  theme,
   disabled,
   onFormation,
   onDefenseFormation,
   onCoverage,
   onSpeed,
   onDrawMode,
+  onTheme,
 }: Props) {
   return (
     <Panel>
@@ -95,11 +100,32 @@ export default function LeftPanel({
         >
           {drawMode ? "Draw Route Mode: On" : "Draw Route Mode: Off"}
         </Button>
-        <p className="text-[11px] leading-snug text-[#6B7280]">
+        <p className="text-[11px] leading-snug text-[#7C8AA5]">
           {drawMode
             ? "Drag from a selected offensive player to draw their route. Press D to go back to moving players."
             : "Drag players to reposition them. Press D to draw routes instead."}
         </p>
+      </Section>
+
+      <Section title="Field Style">
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button
+            active={theme === "turf"}
+            disabled={disabled}
+            onClick={() => onTheme("turf")}
+            aria-pressed={theme === "turf"}
+          >
+            Turf
+          </Button>
+          <Button
+            active={theme === "chalkboard"}
+            disabled={disabled}
+            onClick={() => onTheme("chalkboard")}
+            aria-pressed={theme === "chalkboard"}
+          >
+            Chalkboard
+          </Button>
+        </div>
       </Section>
 
       <Section title="Simulation Speed">
@@ -113,7 +139,7 @@ export default function LeftPanel({
             disabled={disabled}
             onChange={(e) => onSpeed(Number(e.target.value))}
             aria-label="Simulation speed"
-            className="h-1 flex-1 cursor-pointer appearance-none bg-[#374151] accent-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40"
+            className="h-1.5 flex-1 disabled:cursor-not-allowed disabled:opacity-40"
           />
           <Badge>{speed.toFixed(1)}x</Badge>
         </div>

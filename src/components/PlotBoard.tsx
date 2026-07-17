@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sharePlay } from "@/app/actions";
-import { LOS_X } from "@/lib/field";
+import { LOS_X, type FieldTheme } from "@/lib/field";
 import { buildFormation } from "@/lib/formations";
 import { flattenPath, pointAtT } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
@@ -87,6 +87,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [isPlacingPassTarget, setIsPlacingPassTarget] = useState(false);
+  const [theme, setTheme] = useState<FieldTheme>("turf");
   const [speed, setSpeed] = useState(1);
   const [resetId, setResetId] = useState(0);
   const [transitionId, setTransitionId] = useState(0);
@@ -460,19 +461,19 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-[#E5E7EB]">
-      <header className="flex items-center justify-between border-b border-[#1F2937] bg-[#0F172A] px-4 py-3">
+    <div className="min-h-screen text-[#E5E7EB]">
+      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-white/[0.06] bg-[#0a0e17]/80 px-4 py-3 backdrop-blur-xl">
         <div className="flex items-baseline gap-2.5">
           <h1 className="text-[15px] font-bold tracking-tight text-[#F8FAFC]">PlotBoard</h1>
-          <span className="text-[12px] text-[#6B7280]">Playbook Designer &amp; Simulator</span>
+          <span className="text-[12px] text-[#7C8AA5]">Playbook Designer &amp; Simulator</span>
         </div>
-        <div className="flex items-center gap-4 text-[11px] text-[#6B7280]">
+        <div className="flex items-center gap-4 text-[11px] text-[#7C8AA5]">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#2563EB]" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#2563EB] shadow-[0_0_8px_rgba(37,99,235,0.7)]" />
             Offense
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#DC2626]" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#DC2626] shadow-[0_0_8px_rgba(220,38,38,0.7)]" />
             Defense
           </span>
         </div>
@@ -485,6 +486,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           coverage={play.coverage}
           speed={speed}
           drawMode={drawMode}
+          theme={theme}
           disabled={isExporting}
           onFormation={onFormation}
           onDefenseFormation={onDefenseFormation}
@@ -494,6 +496,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             setDrawMode(on);
             if (on) setIsPlacingPassTarget(false);
           }}
+          onTheme={setTheme}
         />
 
         <main className="flex flex-col gap-3">
@@ -505,13 +508,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           />
 
           {missingShare && (
-            <div className="border border-[#4B5563] bg-[#1F2937] px-3 py-2 text-[12px] text-[#FCA5A5]">
+            <div className="rounded-xl border border-rose-500/20 bg-[#2A161C]/70 px-3 py-2 text-[12px] text-[#FCA5A5] backdrop-blur-xl">
               That shared play isn&apos;t in the database, and isn&apos;t saved in this browser.
               Showing a fresh board instead.
             </div>
           )}
 
-          <div className="relative border border-[#1F2937] bg-[#111827] p-2">
+          <div className="relative rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl">
             <FieldCanvas
               play={play}
               selectedId={selectedId}
@@ -521,6 +524,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               resetId={resetId}
               transitionId={transitionId}
               isPlacingPassTarget={isPlacingPassTarget}
+              theme={theme}
               onSelect={setSelectedId}
               onPlayChange={setPlay}
               onCommit={commit}
@@ -531,8 +535,8 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             />
 
             {isExporting && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0B0F19]/85">
-                <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#374151] border-t-[#3B82F6]" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-[#0a0e17]/85 backdrop-blur-sm">
+                <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#374151] border-t-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.5)]" />
                 <p className="text-[12px] text-[#9CA3AF]">
                   {exportState.status === "busy" ? exportState.message : "Rendering…"}
                 </p>
@@ -540,7 +544,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             )}
           </div>
 
-          <p className="text-[12px] leading-relaxed text-[#6B7280]">
+          <p className="text-[12px] leading-relaxed text-[#7C8AA5]">
             {isPlacingPassTarget
               ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc cancels."
               : drawMode

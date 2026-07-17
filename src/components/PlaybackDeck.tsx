@@ -96,7 +96,7 @@ export default function PlaybackDeck({
   const scrubDisabled = disabled || isPlaying || !hasRun;
 
   return (
-    <div className="flex items-center gap-2.5 border border-[#1F2937] bg-[#0F172A] px-3 py-2.5">
+    <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#0F172A]/70 px-3 py-2.5 shadow-[0_8px_24px_-10px_rgba(0,0,0,0.5)] backdrop-blur-xl">
       <Button
         disabled={disabled}
         onClick={onReset}
@@ -143,7 +143,7 @@ export default function PlaybackDeck({
         disabled={scrubDisabled}
         onChange={(e) => onScrub(Number(e.target.value))}
         aria-label="Playback position"
-        className="h-1 flex-1 cursor-pointer appearance-none bg-[#374151] accent-[#38BDF8] disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-1.5 flex-1 disabled:cursor-not-allowed disabled:opacity-40"
       />
 
       <Badge>

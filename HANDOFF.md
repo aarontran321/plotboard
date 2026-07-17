@@ -133,14 +133,17 @@ Things that will bite you if you don't know them:
   the field, so man/zone assignments are **derived from the actual roster**
   (`manAssignments`, `zoneAssignments`) rather than a fixed table. A hardcoded
   map would silently leave defenders uncovered — `verify` checks that it doesn't.
-- **The animation loop only runs while playing.** An idle board holds no
-  animation frame. Static repaints happen in an effect after render. If you add
-  something that animates while idle, you are probably doing it wrong. There are
-  a small number of deliberate exceptions, all narrow and all self-terminating:
-  the QB throw guides / passing lane (while the QB is selected *or* the Pass
-  Target Tool is armed), the formation transition, the boundary-warning flash,
-  and a context-menu "shimmer" highlight. The latter three share one `pump()`
-  loop that stops the moment all of them are idle.
+- **The animation loop while idle is now deliberately broad, not narrow.**
+  This used to be a hard rule ("an idle board holds no animation frame,
+  full stop, with three narrow exceptions") — it was **reversed** for the
+  "always alive" tactile aesthetic: routes, the passing lane and the QB
+  guides all march continuously (`FieldCanvas`'s marching-ants effect runs
+  whenever `!isPlaying && !drawMode`, no longer gated to QB selection or the
+  Pass Target Tool). The still-narrower `pump()` loop is unchanged and covers
+  only the genuinely transient bits — formation easing, the boundary-warning
+  flash, and a context-menu "shimmer" — stopping itself the moment all three
+  are done. If you're profiling and wondering why the canvas repaints at 60fps
+  on a totally idle board, this is why, and it's intentional now.
 - **Interaction is strictly mode-switched.** `pointerdown` decides *once*,
   from `drawMode`, whether a gesture is a `drag`, `group-drag` or a `route`, and
   records that on `interactionRef`. `pointermove` only services the gesture
@@ -162,8 +165,16 @@ Things that will bite you if you don't know them:
   `MAX_PLAY_TIME`. Scrubbing/stepping are disabled while actually playing
   (pause first) to avoid the seek and the live RAF loop fighting over
   `simRef` in the same frame.
-- **No glows. Still.** The boundary warning is a flat red *ring*, not a glow,
-  because the brief that asked for it did not know about this rule.
+- **"No glows" was reversed.** Every previous mention in this document of a
+  hard flat/no-shadow/no-gradient rule described a deliberate design choice
+  that held for a while and is **no longer current** — a later brief
+  explicitly asked for a "Tactile / Elevated Dark Mode" with glassmorphism
+  panels, gradient buttons, glowing tokens and pulsing outcome banners, and
+  that request was treated as a considered reversal rather than silently
+  honoured or silently ignored. `render.ts` now uses `shadowBlur`/gradients
+  throughout (player tokens, the outcome banner, the passing lane, snap
+  highlights); `ui.tsx` uses gradient buttons and frosted-glass panels. If a
+  future brief asks to go flat again, that's a third reversal, not a bug.
 - **A play's `name` may be empty, and the default is never stored.** The default
   is a timestamp, so materialising it during render would produce different
   markup on the server and the client and break hydration. `resolvePlayName`
@@ -180,9 +191,26 @@ Things that will bite you if you don't know them:
 
 ## 4. What's implemented
 
-- **3-column flat dark workspace** (#0B0F19 / #111827 / #0F172A, #1F2937 borders).
-  Strictly no glows: there is not one `shadowBlur`, `box-shadow`, `text-shadow`,
-  or gradient in `src/` — that was a hard requirement, and `grep` enforces it.
+- **3-column "Tactile / Elevated Dark Mode" workspace**: a deep radial-gradient
+  navy page background (`globals.css`), with panels a step lighter, frosted
+  (`backdrop-blur`), bordered in low-opacity white, and drop-shadowed so they
+  read as physically raised. Buttons carry a gradient and lift/glow on hover;
+  a toggled-on state (Draw Route Mode, Turf/Chalkboard) uses a vibrant emerald
+  glow rather than a plain fill. Dropdowns and text inputs (`Select`,
+  `TextField` in `ui.tsx`) are minimal underlines rather than boxed fields,
+  glowing into the accent colour on focus. `Section` (in `ui.tsx`) is a
+  collapsible accordion, defaulting open, so the long control stack in each
+  side panel can be condensed. On the field itself: player tokens are radial
+  gradients with a drop shadow and a glossy top-left highlight (a "magnetic
+  whiteboard piece" look); the outcome banner is a rounded pill that pulses a
+  coloured glow; the passing lane, pass target and snap-highlight ring all
+  glow in their accent colour; a small football badge marks whoever currently
+  has the ball during playback (`ballCarrierId` in `render.ts`); and a
+  **Field Style** toggle in the left panel swaps the realistic turf for a
+  slate "coach's chalkboard" theme (`FieldTheme`/`paletteForTheme` in
+  `field.ts` — only the field surface changes; tokens, routes and UI accents
+  are deliberately identical on either board, and the cached field canvas
+  rebuilds whenever the theme changes, the same way it already did on resize).
 - **7v7 rosters.** **Offense formations**: Spread, I-Formation, Singleback,
   Empty Backfield (each 7: a centre, a QB, five skill players).
   **Defense formations**: 4-3, 3-4, Nickel, Dime, 5-2 (each 7). Note the brief's
@@ -367,6 +395,21 @@ none of the new interaction (snap highlighting, the crosshair cursor and field
 dim, scrubbing, shift-click grouping, the right-click menu) has been exercised
 by an actual pointer in an actual browser. If you have one, that is the
 highest-value next act, same as it was for the original animation.
+
+**Same again for the "Tactile / Elevated Dark Mode" visual pass** (gradient
+background, glass panels, gradient/glow buttons, underline inputs, tactile
+gradient/shadow player tokens, the pulsing outcome banner, the chalkboard
+theme toggle, the ball-possession badge, continuous marching-ants routes):
+`tsc`, `eslint`, `npm run build`, and `npm run verify` (still 121/121, since
+none of this touched simulation logic) are all green, and a fresh dev-server
+`curl` confirms the new markup ("Field Style", "Chalkboard") renders with no
+server-side exceptions. But glow, blur, gradient and shadow effects are
+exactly the category of thing a static HTML fetch cannot confirm looks right
+— canvas `shadowBlur`, CSS `backdrop-blur`, and the chalkboard cache-rebuild-
+on-theme-change path in particular have only been read, not seen. This is a
+strictly higher-value "look at it in a real browser" than the previous
+entries in this section, precisely because the whole point of the change was
+visual.
 
 ## 7. Bugs found and fixed
 

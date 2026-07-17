@@ -24,18 +24,18 @@ function savedAgo(savedAt: number): string {
 export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDelete }: Props) {
   if (plays.length === 0) {
     return (
-      <p className="border border-[#1F2937] bg-[#0F172A] px-3 py-2.5 text-[12px] text-[#6B7280]">
+      <p className="rounded-lg border border-white/[0.06] bg-[#0F172A]/60 px-3 py-2.5 text-[12px] text-[#7C8AA5]">
         No saved plays yet. Name a play above and hit Save Play.
       </p>
     );
   }
 
   return (
-    <ul className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
+    <ul className="flex max-h-[220px] flex-col gap-1.5 overflow-y-auto">
       {plays.map((p) => {
         const active = p.id === activeId;
         return (
-          <li key={p.id} className="flex items-stretch gap-1">
+          <li key={p.id} className="flex items-stretch gap-1.5">
             {/* The whole row is the load target, so the name itself is the button. */}
             <button
               type="button"
@@ -46,16 +46,17 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
               // "Vertical Crossjust now" when read aloud.
               aria-label={`Load ${p.name}, saved ${savedAgo(p.savedAt)}`}
               className={
-                "flex min-w-0 flex-1 cursor-pointer flex-col items-start border px-2.5 py-1.5 text-left transition-colors " +
+                "flex min-w-0 flex-1 cursor-pointer flex-col items-start rounded-lg border px-2.5 py-1.5 text-left " +
+                "transition-[transform,box-shadow,background-color] duration-150 enabled:hover:-translate-y-px " +
                 "disabled:cursor-not-allowed disabled:opacity-40 " +
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6] " +
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38BDF8] " +
                 (active
-                  ? "border-[#3B82F6] bg-[#1D4ED8] text-white"
-                  : "border-[#374151] bg-[#1F2937] text-[#E5E7EB] enabled:hover:bg-[#374151]")
+                  ? "border-sky-400/40 bg-gradient-to-b from-sky-500 to-blue-600 text-white shadow-[0_4px_14px_-4px_rgba(14,165,233,0.6)]"
+                  : "border-white/[0.06] bg-[#1A2336]/70 text-[#E5E7EB] enabled:hover:bg-[#232E45]/80")
               }
             >
               <span className="w-full truncate text-[12px] font-medium">{p.name}</span>
-              <span className={`text-[10px] ${active ? "text-[#BFDBFE]" : "text-[#6B7280]"}`}>
+              <span className={`text-[10px] ${active ? "text-[#BFDBFE]" : "text-[#7C8AA5]"}`}>
                 {savedAgo(p.savedAt)}
               </span>
             </button>
@@ -68,10 +69,10 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
               aria-label={`Delete ${p.name}`}
               title={`Delete ${p.name}`}
               className={
-                "shrink-0 cursor-pointer border border-[#4B5563] bg-[#1F2937] px-2 text-[#FCA5A5] transition-colors " +
-                "enabled:hover:bg-[#374151] enabled:hover:text-[#F87171] " +
+                "shrink-0 cursor-pointer rounded-lg border border-rose-500/20 bg-[#1A2336]/70 px-2 text-[#FCA5A5] " +
+                "transition-colors enabled:hover:bg-[#3A1F27] enabled:hover:text-[#F87171] " +
                 "disabled:cursor-not-allowed disabled:opacity-40 " +
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38BDF8]"
               }
             >
               <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true" fill="none">

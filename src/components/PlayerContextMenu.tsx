@@ -6,8 +6,8 @@ function MenuItem({ className = "", ...props }: ButtonHTMLAttributes<HTMLButtonE
   return (
     <button
       className={
-        "w-full px-3 py-2 text-left text-[12.5px] font-medium text-[#E5E7EB] " +
-        "enabled:hover:bg-[#1F2937] disabled:cursor-not-allowed disabled:text-[#4B5563] " +
+        "w-full px-3 py-2 text-left text-[12.5px] font-medium text-[#E5E7EB] transition-colors " +
+        "enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:text-[#4B5563] " +
         "disabled:opacity-60 cursor-pointer " +
         className
       }
@@ -63,10 +63,10 @@ export default function PlayerContextMenu({
         }}
       />
       <div
-        className="absolute z-50 w-52 border border-[#374151] bg-[#111827] py-1"
+        className="absolute z-50 w-52 rounded-xl border border-white/[0.08] bg-[#131a2b]/90 py-1 shadow-[0_16px_40px_-10px_rgba(0,0,0,0.6)] backdrop-blur-xl"
         style={{ left: x, top: y }}
       >
-        <div className="border-b border-[#1F2937] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#6B7280]">
+        <div className="border-b border-white/[0.06] px-3 py-2 text-[11px] font-semibold tracking-[0.1em] text-[#7C8AA5] uppercase">
           {playerLabel}
         </div>
         <MenuItem disabled={!hasRoute} onClick={run(onDeleteRoute)}>

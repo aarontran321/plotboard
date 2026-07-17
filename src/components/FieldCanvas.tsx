@@ -13,6 +13,7 @@ import {
   makeView,
   toWorld,
   violatesScrimmage,
+  type FieldTheme,
   type View,
 } from "@/lib/field";
 import { flattenPath, nearestOnPath, pointAtT } from "@/lib/geometry";
@@ -47,6 +48,8 @@ interface Props {
   transitionId: number;
   /** True while the dedicated Pass Target Tool is armed. */
   isPlacingPassTarget: boolean;
+  /** "turf" (default) or the coach's chalkboard look. */
+  theme: FieldTheme;
   onSelect: (id: string | null) => void;
   onPlayChange: (next: PlayState) => void;
   /** Called once an interaction completes, with the state from before it began. */
@@ -119,6 +122,7 @@ export default function FieldCanvas({
   resetId,
   transitionId,
   isPlacingPassTarget,
+  theme,
   onSelect,
   onPlayChange,
   onCommit,
@@ -172,6 +176,7 @@ export default function FieldCanvas({
     drawMode,
     speed,
     isPlacingPassTarget,
+    theme,
     onFinished,
   });
   const viewRef = useRef(view);
@@ -184,6 +189,7 @@ export default function FieldCanvas({
       drawMode,
       speed,
       isPlacingPassTarget,
+      theme,
       onFinished,
     };
     viewRef.current = view;
@@ -237,17 +243,19 @@ export default function FieldCanvas({
     const ctx = canvas.getContext("2d");
     ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Rebuild the cached field at the new size.
+    // Rebuild the cached field at the new size (or when the theme changes —
+    // turf and chalkboard are visually different enough that the cache must
+    // not silently keep showing the old one).
     const cache = document.createElement("canvas");
     cache.width = Math.round(view.width * dpr);
     cache.height = Math.round(view.height * dpr);
     const cctx = cache.getContext("2d");
     if (cctx) {
       cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      drawField(cctx, view);
+      drawField(cctx, view, { theme });
       fieldCacheRef.current = cache;
     }
-  }, [view]);
+  }, [view, theme]);
 
   // --- Simulation lifecycle ------------------------------------------------
 
@@ -299,6 +307,7 @@ export default function FieldCanvas({
       isPlaying: playing,
       drawMode: drawing,
       isPlacingPassTarget: placing,
+      theme,
     } = latest.current;
     const now = performance.now();
 
@@ -345,7 +354,11 @@ export default function FieldCanvas({
       shimmers[id] = elapsed / SHIMMER_MS;
     }
 
-    const marching = (sel === "QB" || placing) && !playing && !drawing;
+    // Routes, the passing lane and the QB guides all march together whenever
+    // the board is idle and not mid-draw — a broader idle animation than this
+    // project used to allow, adopted deliberately for the "always alive"
+    // aesthetic this pass asked for.
+    const idleDash = !playing && !drawing ? qbDashRef.current : 0;
 
     drawScene(ctx, viewRef.current, {
       play: p,
@@ -358,13 +371,14 @@ export default function FieldCanvas({
           ? { dashOffset: qbDashRef.current, hoverTarget: hoverTargetRef.current }
           : null,
       passPlacement: placing ? { snapReceiverId: passSnapRef.current } : null,
-      passLaneDashOffset: marching ? qbDashRef.current : 0,
+      dashOffset: idleDash,
       losActive: losActiveRef.current && !playing,
       drawMode: drawing,
       warnings,
       shimmers,
       transition,
       background: fieldCacheRef.current,
+      theme,
     });
   }, [groupIds]);
 
@@ -409,12 +423,12 @@ export default function FieldCanvas({
     return () => cancelAnimationFrame(raf);
   }, [isPlaying, draw]);
 
-  // A deliberate, narrow exception to "no animation while idle": the QB throw
-  // guides and the passing lane march to read as interactive discoverability
-  // hints, not decoration. Scoped to QB selection or an armed Pass Target Tool,
-  // so an idle board otherwise holds no frame.
+  // Routes, the passing lane and the QB guides all march continuously
+  // whenever the board is idle and not mid-draw — a deliberately broader
+  // "always alive" idle animation than this project used to allow, so the
+  // whole board keeps a pulse rather than only three narrow exceptions.
   useEffect(() => {
-    if (isPlaying || drawMode || (selectedId !== "QB" && !isPlacingPassTarget)) return;
+    if (isPlaying || drawMode) return;
 
     let raf = 0;
     const tick = () => {
@@ -424,7 +438,7 @@ export default function FieldCanvas({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, selectedId, drawMode, isPlacingPassTarget, draw]);
+  }, [isPlaying, drawMode, draw]);
 
   /**
    * Drives frames for the transient idle animations (formation easing, the

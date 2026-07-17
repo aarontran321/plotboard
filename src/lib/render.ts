@@ -8,7 +8,11 @@ import {
   NEUTRAL_ZONE_DEPTH,
   PLAYER_RADIUS,
   ROUTE_HANDLE_GAP,
+  dist,
+  paletteForTheme,
   yardNumberAt,
+  type FieldTheme,
+  type Palette,
   type View,
 } from "./field";
 import { zoneAssignments } from "./formations";
@@ -18,37 +22,43 @@ import type { BallState, PassTarget, PlayState, Point, SimState, ZoneAssignment 
 type Ctx = CanvasRenderingContext2D;
 
 /**
- * A small tiling canvas of flat speckles. This gives the turf visible texture
- * without reaching for a gradient, which the design rules forbid.
+ * A small tiling canvas of speckles, giving the turf (or chalkboard dust)
+ * visible texture. Cached per theme, since switching themes must not keep
+ * yesterday's grass speckle baked into today's slate.
  */
-let grassPattern: CanvasPattern | null = null;
+const texturePatterns = new Map<FieldTheme, CanvasPattern | null>();
 
-function getGrassPattern(ctx: Ctx): CanvasPattern | null {
-  if (grassPattern) return grassPattern;
+function getTexturePattern(ctx: Ctx, theme: FieldTheme): CanvasPattern | null {
+  const cached = texturePatterns.get(theme);
+  if (cached !== undefined) return cached;
 
+  const palette = paletteForTheme(theme);
   const tile = document.createElement("canvas");
   tile.width = 48;
   tile.height = 48;
   const tctx = tile.getContext("2d");
   if (!tctx) return null;
 
-  tctx.fillStyle = COLORS.grass;
+  tctx.fillStyle = palette.grass;
   tctx.fillRect(0, 0, 48, 48);
 
-  // Deterministic speckle so the turf does not shimmer between frames.
+  // Deterministic speckle so the texture does not shimmer between frames.
   let seed = 1337;
   const rand = () => {
     seed = (seed * 1664525 + 1013904223) % 4294967296;
     return seed / 4294967296;
   };
+  const lightFleck = theme === "chalkboard" ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)";
+  const darkFleck = theme === "chalkboard" ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.055)";
   for (let i = 0; i < 260; i++) {
     const light = rand() > 0.5;
-    tctx.fillStyle = light ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.055)";
+    tctx.fillStyle = light ? lightFleck : darkFleck;
     tctx.fillRect(Math.floor(rand() * 48), Math.floor(rand() * 48), 1, rand() > 0.7 ? 2 : 1);
   }
 
-  grassPattern = ctx.createPattern(tile, "repeat");
-  return grassPattern;
+  const pattern = ctx.createPattern(tile, "repeat");
+  texturePatterns.set(theme, pattern);
+  return pattern;
 }
 
 function line(ctx: Ctx, v: View, x1: number, y1: number, x2: number, y2: number, width: number, color: string) {
@@ -62,20 +72,45 @@ function line(ctx: Ctx, v: View, x1: number, y1: number, x2: number, y2: number,
 
 export interface FieldOptions {
   /**
-   * Turf speckle. Worth it on screen; switched off for GIF export, where
+   * Surface speckle. Worth it on screen; switched off for GIF export, where
    * per-pixel noise is close to worst case for LZW and burns through the
    * 256-colour palette, for texture that is invisible at export size.
    */
   texture?: boolean;
+  /** "turf" (default) is the realistic field; "chalkboard" is the coach's-board look. */
+  theme?: FieldTheme;
+}
+
+/** Diagonal hash strokes filling an endzone rectangle, clipped to its bounds. */
+function drawEndzoneHatch(ctx: Ctx, v: View, x0: number, width: number, palette: Palette) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0 * v.scale, 0, width * v.scale, v.height);
+  ctx.clip();
+
+  ctx.globalAlpha = 0.16;
+  ctx.strokeStyle = palette.line;
+  ctx.lineWidth = 1;
+  const step = 2.2 * v.scale;
+  const w = width * v.scale;
+  const h = v.height;
+  for (let offset = -h; offset < w + h; offset += step) {
+    ctx.beginPath();
+    ctx.moveTo(x0 * v.scale + offset, 0);
+    ctx.lineTo(x0 * v.scale + offset - h, h);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
-  const { texture = true } = opts;
+  const { texture = true, theme = "turf" } = opts;
+  const palette = paletteForTheme(theme);
 
-  ctx.fillStyle = COLORS.grass;
+  ctx.fillStyle = palette.grass;
   ctx.fillRect(0, 0, v.width, v.height);
 
-  const pattern = texture ? getGrassPattern(ctx) : null;
+  const pattern = texture ? getTexturePattern(ctx, theme) : null;
   if (pattern) {
     ctx.fillStyle = pattern;
     ctx.fillRect(0, 0, v.width, v.height);
@@ -84,14 +119,17 @@ export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
   // Mown stripes every 5 yards.
   for (let x = 0; x < FIELD_LENGTH; x += 5) {
     if ((x / 5) % 2 === 0) continue;
-    ctx.fillStyle = "rgba(255,255,255,0.022)";
+    ctx.fillStyle = theme === "chalkboard" ? "rgba(255,255,255,0.015)" : "rgba(255,255,255,0.022)";
     ctx.fillRect(x * v.scale, 0, 5 * v.scale, v.height);
   }
 
-  // Endzones sit a shade darker than the field of play.
-  ctx.fillStyle = COLORS.endzone;
+  // Endzones sit a shade darker than the field of play, with a diagonal hatch
+  // so they read as a distinct zone rather than just a darker rectangle.
+  ctx.fillStyle = palette.endzone;
   ctx.fillRect(0, 0, ENDZONE_DEPTH * v.scale, v.height);
   ctx.fillRect((FIELD_LENGTH - ENDZONE_DEPTH) * v.scale, 0, ENDZONE_DEPTH * v.scale, v.height);
+  drawEndzoneHatch(ctx, v, 0, ENDZONE_DEPTH, palette);
+  drawEndzoneHatch(ctx, v, FIELD_LENGTH - ENDZONE_DEPTH, ENDZONE_DEPTH, palette);
 
   ctx.save();
   ctx.globalAlpha = 0.9;
@@ -99,21 +137,21 @@ export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
   // Yard lines every 5 yards; every 10 gets a heavier stroke.
   for (let x = ENDZONE_DEPTH; x <= FIELD_LENGTH - ENDZONE_DEPTH; x += 5) {
     const major = (x - ENDZONE_DEPTH) % 10 === 0;
-    line(ctx, v, x, 0, x, FIELD_WIDTH, major ? 1.6 : 1, major ? COLORS.line : COLORS.lineSoft);
+    line(ctx, v, x, 0, x, FIELD_WIDTH, major ? 1.6 : 1, major ? palette.line : palette.lineSoft);
   }
 
   // Hash marks: one-yard ticks along both hash lines.
   for (let x = ENDZONE_DEPTH + 1; x < FIELD_LENGTH - ENDZONE_DEPTH; x += 1) {
     if ((x - ENDZONE_DEPTH) % 5 === 0) continue;
     for (const y of [HASH_Y_TOP, HASH_Y_BOTTOM]) {
-      line(ctx, v, x, y - 0.35, x, y + 0.35, 1, COLORS.lineSoft);
+      line(ctx, v, x, y - 0.35, x, y + 0.35, 1, palette.lineSoft);
     }
   }
 
   ctx.restore();
 
   // Yard numbers, drawn upright for legibility in a tactical view.
-  ctx.fillStyle = COLORS.line;
+  ctx.fillStyle = palette.line;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const numberSize = Math.max(9, 2.1 * v.scale);
@@ -127,34 +165,33 @@ export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
   }
   ctx.globalAlpha = 1;
 
-  // Endzone wordmarks, rotated to read from the back of each endzone.
-  ctx.save();
-  ctx.globalAlpha = 0.28;
-  ctx.font = `700 ${Math.max(10, 2.6 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
-  ctx.fillStyle = COLORS.line;
-
-  ctx.translate(5 * v.scale, (FIELD_WIDTH / 2) * v.scale);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText("END ZONE", 0, 0);
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalAlpha = 0.28;
-  ctx.font = `700 ${Math.max(10, 2.6 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
-  ctx.fillStyle = COLORS.line;
-  ctx.translate((FIELD_LENGTH - 5) * v.scale, (FIELD_WIDTH / 2) * v.scale);
-  ctx.rotate(Math.PI / 2);
-  ctx.fillText("END ZONE", 0, 0);
-  ctx.restore();
+  // Endzone wordmarks, rotated to read from the back of each endzone, with a
+  // bold outlined treatment so they read as a distinct typographic texture.
+  const drawWordmark = (x: number, rotate: number) => {
+    ctx.save();
+    ctx.font = `800 ${Math.max(10, 2.8 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.translate(x * v.scale, (FIELD_WIDTH / 2) * v.scale);
+    ctx.rotate(rotate);
+    ctx.lineWidth = Math.max(1, 0.12 * v.scale);
+    ctx.strokeStyle = palette.line;
+    ctx.globalAlpha = 0.22;
+    ctx.strokeText("END ZONE", 0, 0);
+    ctx.fillStyle = palette.line;
+    ctx.globalAlpha = 0.3;
+    ctx.fillText("END ZONE", 0, 0);
+    ctx.restore();
+  };
+  drawWordmark(5, -Math.PI / 2);
+  drawWordmark(FIELD_LENGTH - 5, Math.PI / 2);
 
   // Sidelines and goal lines.
   ctx.globalAlpha = 1;
-  line(ctx, v, ENDZONE_DEPTH, 0, ENDZONE_DEPTH, FIELD_WIDTH, 2.2, COLORS.line);
-  line(ctx, v, FIELD_LENGTH - ENDZONE_DEPTH, 0, FIELD_LENGTH - ENDZONE_DEPTH, FIELD_WIDTH, 2.2, COLORS.line);
+  line(ctx, v, ENDZONE_DEPTH, 0, ENDZONE_DEPTH, FIELD_WIDTH, 2.2, palette.line);
+  line(ctx, v, FIELD_LENGTH - ENDZONE_DEPTH, 0, FIELD_LENGTH - ENDZONE_DEPTH, FIELD_WIDTH, 2.2, palette.line);
 
   // The line of scrimmage is deliberately NOT drawn here: this canvas is cached
-  // and only rebuilt on resize, and the line is draggable. It is stroked live
-  // in `drawScrimmage` instead.
+  // and only rebuilt on resize (or a theme change), and the line is draggable.
+  // It is stroked live in `drawScrimmage` instead.
 }
 
 /**
@@ -209,14 +246,23 @@ export function drawRoute(
   points: Point[],
   color: string,
   dashed = true,
-  highlighted = false
+  highlighted = false,
+  /** Marching-ants phase, so the dash reads as travelling in the run direction. */
+  dashOffset = 0
 ) {
   if (points.length < 2) return;
 
-  // A route the Pass Target Tool is hovering gets a heavier, brighter stroke —
-  // weight and colour carry the emphasis, not a blur.
+  // A route the Pass Target Tool is hovering gets a heavier, brighter stroke
+  // plus a soft glow — weight, colour and blur all carry the emphasis.
   ctx.save();
-  if (dashed) ctx.setLineDash([6, 5]);
+  if (highlighted) {
+    ctx.shadowColor = COLORS.passingLane;
+    ctx.shadowBlur = 10;
+  }
+  if (dashed) {
+    ctx.setLineDash([7, 6]);
+    ctx.lineDashOffset = -dashOffset;
+  }
   ctx.lineWidth = highlighted ? 3.5 : 2;
   ctx.strokeStyle = highlighted ? COLORS.passingLane : color;
   ctx.lineCap = "round";
@@ -279,6 +325,8 @@ export function drawPassTarget(ctx: Ctx, v: View, target: PassTarget) {
   const r = 1.15 * v.scale;
 
   ctx.save();
+  ctx.shadowColor = COLORS.target;
+  ctx.shadowBlur = 10;
   ctx.lineWidth = 2;
   ctx.strokeStyle = COLORS.target;
 
@@ -336,23 +384,53 @@ const QB_GOLD = "#EAB308";
 export interface PlayerStyle {
   selected?: boolean;
   isQB?: boolean;
-  /**
-   * 0..1 boundary-violation flash. Rendered as a flat red ring at falling
-   * opacity — the brief asked for a "red glow", but this project forbids
-   * shadows and gradients outright, so the warning reads through colour and
-   * weight instead.
-   */
+  /** 0..1 boundary-violation flash: a pulsing red glow ring at falling opacity. */
   warn?: number;
   /** Shown on a selected player in draw mode: the ring you pull a route from. */
   routeHandle?: boolean;
   /**
    * The Pass Target Tool is hovering this receiver, within snapping range.
-   * Reads as a crisp outer ring plus a slight scale-up — weight and size, not
-   * a glow, so it stays inside the project's flat-design rule.
+   * Reads as a glowing outer ring plus a slight scale-up.
    */
   snapHighlight?: boolean;
   /** A transient "shimmer" called out from the token's context menu. */
   shimmer?: number;
+  /** This token currently has the ball — draws a small badge above it. */
+  hasBall?: boolean;
+}
+
+/** A small football badge marking whoever currently has the ball. */
+function drawBallBadge(ctx: Ctx, cx: number, cy: number, r: number) {
+  const bx = cx + r * 0.78;
+  const by = cy - r * 1.05;
+  const br = r * 0.42;
+
+  ctx.save();
+  ctx.shadowColor = "rgba(250,204,21,0.85)";
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.arc(bx, by, br + 2, 0, Math.PI * 2);
+  ctx.fillStyle = "#0B0F19";
+  ctx.fill();
+  ctx.strokeStyle = COLORS.possession;
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.rotate(-Math.PI / 5);
+  ctx.beginPath();
+  ctx.moveTo(-br * 0.85, 0);
+  ctx.quadraticCurveTo(0, -br * 1.3, br * 0.85, 0);
+  ctx.quadraticCurveTo(0, br * 1.3, -br * 0.85, 0);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.ball;
+  ctx.fill();
+  ctx.lineWidth = 0.8;
+  ctx.strokeStyle = "#F8FAFC";
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function drawPlayer(
@@ -370,11 +448,11 @@ export function drawPlayer(
     routeHandle = false,
     snapHighlight = false,
     shimmer = 0,
+    hasBall = false,
   } = style;
   const cx = pos.x * v.scale;
   const cy = pos.y * v.scale;
-  // A snap-eligible receiver scales up slightly under the Pass Target Tool —
-  // real size change, not a shadow, so it stays inside the flat-design rule.
+  // A snap-eligible receiver scales up slightly under the Pass Target Tool.
   const r = PLAYER_RADIUS * v.scale * (snapHighlight ? 1.14 : 1);
 
   ctx.save();
@@ -382,6 +460,8 @@ export function drawPlayer(
   if (shimmer > 0) {
     ctx.save();
     ctx.globalAlpha = 0.55 + 0.45 * Math.sin(shimmer * Math.PI * 2);
+    ctx.shadowColor = COLORS.passingLane;
+    ctx.shadowBlur = 12;
     ctx.beginPath();
     ctx.arc(cx, cy, r + 7, 0, Math.PI * 2);
     ctx.lineWidth = 2.5;
@@ -392,6 +472,8 @@ export function drawPlayer(
 
   if (snapHighlight) {
     ctx.save();
+    ctx.shadowColor = COLORS.passingLane;
+    ctx.shadowBlur = 14;
     ctx.beginPath();
     ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
     ctx.lineWidth = 2.5;
@@ -403,6 +485,8 @@ export function drawPlayer(
   if (warn > 0) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, warn);
+    ctx.shadowColor = COLORS.warning;
+    ctx.shadowBlur = 10;
     ctx.beginPath();
     ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
     ctx.lineWidth = 3;
@@ -434,27 +518,66 @@ export function drawPlayer(
     ctx.stroke();
   }
 
-  // Flat body with a crisp white ring. No shadow, no gradient.
+  // Tactile whiteboard-piece body: a radial gradient reading as a rounded 3D
+  // piece, plus a drop shadow so the token appears to sit above the field.
+  const light = team === "offense" ? COLORS.offenseLight : COLORS.defenseLight;
+  const base = team === "offense" ? COLORS.offense : COLORS.defense;
+  const dark = team === "offense" ? COLORS.offenseDark : COLORS.defenseDark;
+  const grad = ctx.createRadialGradient(
+    cx - r * 0.35,
+    cy - r * 0.4,
+    r * 0.1,
+    cx,
+    cy,
+    r * 1.15
+  );
+  grad.addColorStop(0, light);
+  grad.addColorStop(0.55, base);
+  grad.addColorStop(1, dark);
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = r * 0.22;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = team === "offense" ? COLORS.offense : COLORS.defense;
+  ctx.fillStyle = grad;
   ctx.fill();
+  ctx.restore();
+
   ctx.lineWidth = isQB ? 2.5 : 2;
   ctx.strokeStyle = isQB ? QB_GOLD : COLORS.nodeBorder;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.stroke();
 
+  // A glossy top-left highlight arc, so the piece reads as rounded rather than flat.
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.32, cy - r * 0.4, r * 0.55, r * 0.32, -0.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fill();
+  ctx.restore();
+
   if (selected) {
+    ctx.save();
+    ctx.shadowColor = COLORS.selected;
+    ctx.shadowBlur = 10;
     ctx.beginPath();
     ctx.arc(cx, cy, r + (isQB ? 8.5 : 3.5), 0, Math.PI * 2);
     ctx.lineWidth = 2;
     ctx.strokeStyle = COLORS.selected;
     ctx.stroke();
+    ctx.restore();
   }
 
   // Shrink the label until it fits inside the node.
   ctx.fillStyle = "#FFFFFF";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = 2;
   let size = r * 0.92;
   ctx.font = `${isQB ? 800 : 700} ${size}px ui-sans-serif, system-ui, sans-serif`;
   const maxWidth = r * 1.7;
@@ -465,6 +588,7 @@ export function drawPlayer(
   ctx.fillText(label, cx, cy);
 
   if (isQB) drawStar(ctx, cx + r * 0.85, cy - r * 0.85, r * 0.36, QB_GOLD);
+  if (hasBall) drawBallBadge(ctx, cx, cy, r);
 
   ctx.restore();
 }
@@ -516,25 +640,14 @@ export function drawBall(ctx: Ctx, v: View, ball: BallState) {
   ctx.restore();
 }
 
+/**
+ * The outcome banner — an impactful, glowing pill that pulses to make the
+ * moment feel bigger than the flat text alone would. Reads `performance.now()`
+ * directly for its pulse phase: this module already talks to the DOM (canvas
+ * patterns), so there is no purity to protect by threading a clock through.
+ */
 export function drawBanner(ctx: Ctx, v: View, text: string) {
-  ctx.save();
-  ctx.font = `700 ${Math.max(12, 2.2 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  const padX = 16;
-  const w = ctx.measureText(text).width + padX * 2;
-  const h = Math.max(26, 3.4 * v.scale);
-  const x = v.width / 2 - w / 2;
-  const y = 10;
-
-  ctx.fillStyle = "#0F172A";
-  ctx.fillRect(x, y, w, h);
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "#1F2937";
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-
-  ctx.fillStyle =
+  const accent =
     text === "Intercepted!"
       ? "#F87171"
       : text === "Pass Completed!"
@@ -542,6 +655,40 @@ export function drawBanner(ctx: Ctx, v: View, text: string) {
         : text === "Pass Deflected!"
           ? COLORS.deflected
           : "#E5E7EB";
+
+  ctx.save();
+  ctx.font = `800 ${Math.max(12, 2.2 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const padX = 20;
+  const w = ctx.measureText(text).width + padX * 2;
+  const h = Math.max(30, 3.8 * v.scale);
+  const x = v.width / 2 - w / 2;
+  const y = 12;
+  const radius = h / 2;
+  const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 260);
+
+  const bg = ctx.createLinearGradient(x, y, x, y + h);
+  bg.addColorStop(0, "#1E293B");
+  bg.addColorStop(1, "#0B1120");
+
+  ctx.save();
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 22 * pulse;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, radius);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = accent;
+  ctx.globalAlpha = 0.6 + 0.4 * pulse;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = accent;
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 8;
   ctx.fillText(text, v.width / 2, y + h / 2);
   ctx.restore();
 }
@@ -555,6 +702,8 @@ export function drawBanner(ctx: Ctx, v: View, text: string) {
  */
 export function drawPassingLane(ctx: Ctx, v: View, from: Point, to: Point, dashOffset: number) {
   ctx.save();
+  ctx.shadowColor = COLORS.passingLane;
+  ctx.shadowBlur = 8;
   ctx.setLineDash([9, 6]);
   ctx.lineDashOffset = -dashOffset;
   ctx.lineWidth = 2.5;
@@ -640,11 +789,11 @@ export interface SceneOptions {
   /** Present only while the dedicated Pass Target Tool is armed. */
   passPlacement?: PassPlacementOptions | null;
   /**
-   * Marching-dash phase for the passing lane (QB to target). Shared with the
-   * QB guide's animation loop — both are among this project's few deliberate
-   * idle-animation exceptions — and left at 0 (a static dash) outside of it.
+   * Marching-ants phase, applied to every dashed element (routes, the passing
+   * lane, the QB throw guides) so the whole board reads as "live" rather than
+   * just the narrow set of things that used to animate while idle.
    */
-  passLaneDashOffset?: number;
+  dashOffset?: number;
   /** True while the line of scrimmage is grabbed or hovered. */
   losActive?: boolean;
   /** True when a route drag is armed, which shows the route handles. */
@@ -662,10 +811,34 @@ export interface SceneOptions {
   transition?: Record<string, Point> | null;
   /**
    * A pre-rendered field to blit instead of re-stroking every yard line and
-   * hash mark. The field only changes when the view resizes, so callers that
-   * animate should cache it.
+   * hash mark. The field only changes when the view resizes or the theme is
+   * switched, so callers that animate should cache it (and rebuild it on
+   * either of those changes).
    */
   background?: CanvasImageSource | null;
+  /** "turf" (default) or "chalkboard" — only used as a fallback when `background` is absent. */
+  theme?: FieldTheme;
+}
+
+/**
+ * Whoever currently has the ball: the QB before it's thrown, nobody while
+ * it's in the air, and whoever it settled on (for a completion or a pick)
+ * once it lands. Nobody carries it after an incompletion or a deflection —
+ * it's just dead on the ground.
+ */
+function ballCarrierId(play: PlayState, sim: SimState | null): string | null {
+  if (!sim) return null;
+  if (!sim.ball) return "QB";
+  if (sim.ball.phase !== "landed") return null;
+  if (sim.outcome !== "Pass Completed!" && sim.outcome !== "Intercepted!") return null;
+
+  let best: { id: string; d: number } | null = null;
+  for (const p of play.players) {
+    const ps = sim.players[p.id];
+    const d = dist(ps.x, ps.y, sim.ball.to.x, sim.ball.to.y);
+    if (!best || d < best.d) best = { id: p.id, d };
+  }
+  return best?.id ?? null;
 }
 
 export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
@@ -677,17 +850,18 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     draftRoute,
     qbGuide,
     passPlacement,
-    passLaneDashOffset = 0,
+    dashOffset = 0,
     losActive = false,
     drawMode = false,
     warnings,
     shimmers,
     transition,
     background,
+    theme = "turf",
   } = opts;
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
-  else drawField(ctx, v);
+  else drawField(ctx, v, { theme });
 
   drawScrimmage(ctx, v, play.losX, losActive);
 
@@ -714,7 +888,8 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
       pts,
       isGroupSelected ? COLORS.selected : COLORS.routeOffense,
       true,
-      isSnapTarget
+      isSnapTarget,
+      dashOffset
     );
   }
 
@@ -741,10 +916,12 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     const qb = play.players.find((p) => p.id === "QB");
     if (qb) {
       const qbPos = posOf(qb) ?? { x: qb.startX, y: qb.startY };
-      drawPassingLane(ctx, v, qbPos, play.passTarget, passLaneDashOffset);
+      drawPassingLane(ctx, v, qbPos, play.passTarget, dashOffset);
     }
     drawPassTarget(ctx, v, play.passTarget);
   }
+
+  const carrierId = ballCarrierId(play, sim);
 
   for (const p of play.players) {
     const pos = posOf(p);
@@ -758,6 +935,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
       routeHandle: drawMode && !sim && p.id === selectedId && p.team === "offense",
       snapHighlight: passPlacement?.snapReceiverId === p.id,
       shimmer: shimmer ?? 0,
+      hasBall: p.id === carrierId,
     });
   }
 

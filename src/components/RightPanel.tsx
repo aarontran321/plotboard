@@ -49,7 +49,7 @@ function Status({ state }: { state: ActionState }) {
       ? "text-[#FCA5A5]"
       : state.status === "done"
         ? "text-[#6EE7B7]"
-        : "text-[#9CA3AF]";
+        : "text-[#7C8AA5]";
   return <p className={`text-[12px] leading-snug ${color}`}>{state.message}</p>;
 }
 
@@ -96,7 +96,7 @@ export default function RightPanel({
   return (
     <Panel>
       <Section title="Active Element">
-        <div className="border border-[#1F2937] bg-[#0F172A] px-3 py-2.5">
+        <div className="rounded-xl border border-white/[0.06] bg-[#0F172A]/60 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           {selected ? (
             <>
               <p className="text-[14px] font-semibold text-[#E5E7EB]">
@@ -104,7 +104,7 @@ export default function RightPanel({
               </p>
               <p
                 className={`mt-1 text-[12px] ${
-                  isQB && !drawMode ? "italic text-[#F97316]" : "text-[#6B7280]"
+                  isQB && !drawMode ? "italic text-[#FB923C]" : "text-[#7C8AA5]"
                 }`}
               >
                 {selected.team === "offense"
@@ -130,8 +130,8 @@ export default function RightPanel({
             </>
           ) : (
             <>
-              <p className="text-[14px] font-semibold text-[#6B7280]">No selection</p>
-              <p className="mt-1 text-[12px] text-[#6B7280]">
+              <p className="text-[14px] font-semibold text-[#7C8AA5]">No selection</p>
+              <p className="mt-1 text-[12px] text-[#7C8AA5]">
                 Click a player to select them.
               </p>
             </>
@@ -179,11 +179,12 @@ export default function RightPanel({
             Redo
           </Button>
         </div>
-        <p className="text-[11px] text-[#6B7280]">Ctrl+Z to undo, Ctrl+Y or Ctrl+Shift+Z to redo.</p>
+        <p className="text-[11px] text-[#7C8AA5]">Ctrl+Z to undo, Ctrl+Y or Ctrl+Shift+Z to redo.</p>
       </Section>
 
       <Section title="Save &amp; Share">
         <Button
+          variant="primary"
           disabled={disabled || !shareEnabled || shareState.status === "busy"}
           onClick={onShare}
         >
@@ -192,7 +193,7 @@ export default function RightPanel({
         {shareEnabled ? (
           <Status state={shareState} />
         ) : (
-          <p className="text-[12px] text-[#6B7280]">
+          <p className="text-[12px] text-[#7C8AA5]">
             Sharing is off until Supabase environment variables are set.
           </p>
         )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { MAX_PLAY_NAME_LENGTH } from "@/lib/playName";
-import { Button } from "./ui";
+import { Button, TextField } from "./ui";
 
 interface Props {
   name: string;
@@ -19,11 +19,11 @@ interface Props {
  */
 export default function PlayNameBar({ name, disabled, onName, onSave }: Props) {
   return (
-    <div className="flex items-center gap-2 border border-[#1F2937] bg-[#111827] p-2">
+    <div className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#111827]/70 px-3.5 py-2 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] backdrop-blur-xl">
       <label htmlFor="play-name" className="sr-only">
         Play name
       </label>
-      <input
+      <TextField
         id="play-name"
         value={name}
         disabled={disabled}
@@ -37,11 +37,7 @@ export default function PlayNameBar({ name, disabled, onName, onSave }: Props) {
           }
         }}
         placeholder="Enter play name (e.g., Vertical Cross, Flex Offense)..."
-        className={
-          "min-w-0 flex-1 border border-[#374151] bg-[#0F172A] px-3 py-2 text-[13px] text-[#E5E7EB] " +
-          "placeholder:text-[#4B5563] disabled:cursor-not-allowed disabled:opacity-40 " +
-          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
-        }
+        className="flex-1 !border-b-2"
       />
       <Button variant="primary" disabled={disabled} onClick={onSave} className="shrink-0">
         Save Play

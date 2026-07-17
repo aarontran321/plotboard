@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MAX_PLAY_NAME_LENGTH } from "@/lib/playName";
-import { Button } from "./ui";
+import { Button, TextField } from "./ui";
 
 interface Props {
   open: boolean;
@@ -84,7 +84,7 @@ export default function NamePlayDialog({ open, initialName, onConfirm, onCancel 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B0F19]/80 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#020617]/70 p-4 backdrop-blur-sm"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
@@ -94,16 +94,16 @@ export default function NamePlayDialog({ open, initialName, onConfirm, onCancel 
         role="dialog"
         aria-modal="true"
         aria-labelledby="name-play-title"
-        className="flex w-full max-w-[420px] flex-col gap-3 border border-[#1F2937] bg-[#111827] p-4"
+        className="flex w-full max-w-[420px] flex-col gap-3 rounded-2xl border border-white/[0.08] bg-[#131a2b]/90 p-5 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl"
       >
         <h2 id="name-play-title" className="text-[14px] font-semibold text-[#F8FAFC]">
           What would you like to name this play before creating the GIF?
         </h2>
-        <p className="text-[12px] text-[#6B7280]">
+        <p className="text-[12px] text-[#7C8AA5]">
           Leave it blank to use a default name. This becomes the GIF&apos;s filename.
         </p>
 
-        <input
+        <TextField
           ref={inputRef}
           value={value}
           maxLength={MAX_PLAY_NAME_LENGTH}
@@ -116,7 +116,7 @@ export default function NamePlayDialog({ open, initialName, onConfirm, onCancel 
           }}
           aria-label="Play name"
           placeholder="Untitled Play"
-          className="w-full border border-[#374151] bg-[#0F172A] px-3 py-2 text-[13px] text-[#E5E7EB] placeholder:text-[#4B5563] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3B82F6]"
+          className="!border-b-2"
         />
 
         <div className="flex justify-end gap-1.5">
