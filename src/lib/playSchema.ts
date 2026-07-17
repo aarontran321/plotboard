@@ -1,6 +1,8 @@
 import { FIELD_LENGTH, FIELD_WIDTH, LOS_MAX_X, LOS_MIN_X, LOS_X } from "./field";
 import { MAX_PLAY_NAME_LENGTH } from "./playName";
 import type {
+  Assignments,
+  CallNotes,
   CoverageId,
   DefenseFormationId,
   FormationId,
@@ -37,6 +39,11 @@ const DEFAULT_DEFENSE_FORMATION: DefenseFormationId = "4-3";
 /** Caps on size, so a hostile payload cannot wedge the renderer. */
 const MAX_PLAYERS = 24;
 const MAX_ROUTE_POINTS = 400;
+/** A coaching note is a badge caption, not an essay. */
+const MAX_ASSIGNMENT_LENGTH = 300;
+/** Each play-call-notes field is a short paragraph, not a document. */
+const MAX_CALL_NOTE_LENGTH = 800;
+const BLANK_CALL_NOTES: CallNotes = { downDistance: "", counters: "", risks: "" };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -50,6 +57,38 @@ function parsePoint(v: unknown): Point | null {
   if (!isRecord(v)) return null;
   if (!finiteInRange(v.x, 0, FIELD_LENGTH) || !finiteInRange(v.y, 0, FIELD_WIDTH)) return null;
   return { x: v.x, y: v.y };
+}
+
+/** Missing entirely (an older share) defaults to no notes at all — a coaching
+ *  note is metadata, not a load-bearing field, so its absence is never an error. */
+function parseAssignments(v: unknown, playerIds: Set<string>): Assignments | null {
+  if (v === undefined) return {};
+  if (!isRecord(v)) return null;
+  const out: Assignments = {};
+  for (const [id, note] of Object.entries(v)) {
+    if (!playerIds.has(id)) return null;
+    if (typeof note !== "string" || note.length > MAX_ASSIGNMENT_LENGTH) return null;
+    out[id] = note;
+  }
+  return out;
+}
+
+function parseCallNotes(v: unknown): CallNotes | null {
+  if (v === undefined) return BLANK_CALL_NOTES;
+  if (!isRecord(v)) return null;
+
+  const field = (key: keyof CallNotes): string | null => {
+    const raw = v[key];
+    if (raw === undefined) return "";
+    if (typeof raw !== "string" || raw.length > MAX_CALL_NOTE_LENGTH) return null;
+    return raw;
+  };
+
+  const downDistance = field("downDistance");
+  const counters = field("counters");
+  const risks = field("risks");
+  if (downDistance === null || counters === null || risks === null) return null;
+  return { downDistance, counters, risks };
 }
 
 export function parsePlayState(input: unknown): PlayState | null {
@@ -140,6 +179,13 @@ export function parsePlayState(input: unknown): PlayState | null {
     passTarget = { x: point.x, y: point.y, receiverId: t.receiverId, t: t.t };
   }
 
+  // Added after plays already had coaching notes shared without them — both
+  // default rather than rejecting an otherwise-valid older play.
+  const assignments = parseAssignments(input.assignments, playerIds);
+  if (assignments === null) return null;
+  const callNotes = parseCallNotes(input.callNotes);
+  if (callNotes === null) return null;
+
   return {
     name,
     formation,
@@ -149,6 +195,8 @@ export function parsePlayState(input: unknown): PlayState | null {
     players,
     routes,
     passTarget,
+    assignments,
+    callNotes,
   };
 }
 
@@ -170,5 +218,7 @@ export function serializePlayState(play: PlayState) {
     })),
     routes: play.routes,
     passTarget: play.passTarget,
+    assignments: play.assignments,
+    callNotes: play.callNotes,
   };
 }

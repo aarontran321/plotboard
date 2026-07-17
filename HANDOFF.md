@@ -89,9 +89,13 @@ src/
     actions.ts            'use server' — sharePlay
   components/
     PlotBoard.tsx         State owner: play, selection, playback, history, shortcuts
-    FieldCanvas.tsx       Canvas, pointer interaction, animation loop
+    FieldCanvas.tsx       Canvas, pointer interaction, animation loop, playhead owner
+    PlayDashboard.tsx     3-panel feature dashboard below the field (desktop-first)
+    KeyframeTimeline.tsx  Event-marker ruler + filmstrip segments + transport controls
+    AnalyticsPanel.tsx    Time-to-throw / route depth & separation / coverage status
+    CoachingGrid.tsx      Per-player assignment notes + situational play-call notes
     LeftPanel/RightPanel  Controls
-    ui.tsx                Flat primitives (Button/Panel/Section/Badge)
+    ui.tsx                Elevated-dark-mode primitives (Button/Panel/Section/Badge/Segmented)
   lib/
     field.ts              Geometry constants, world<->screen transforms, palette,
                           neutral-zone rules (clampToSide/violatesScrimmage)
@@ -99,7 +103,8 @@ src/
     formations.ts         7v7 personnel (4 offensive + 5 defensive formations),
                           alignments, derived man/zone assignments
     routePresets.ts       Route shapes, mirrored per side of the field
-    simulation.ts         Movement, throw physics, defensive AI   <- DOM-free
+    simulation.ts         Movement, throw physics, defensive AI, computePlayEvents <- DOM-free
+    analytics.ts           Live telemetry (TTT, separation, coverage rules)         <- DOM-free
     render.ts             All canvas drawing                       <- no mutation
     history.ts            Undo/redo over snapshots
     playSchema.ts         Validation at the trust boundary
@@ -165,6 +170,29 @@ Things that will bite you if you don't know them:
   `MAX_PLAY_TIME`. Scrubbing/stepping are disabled while actually playing
   (pause first) to avoid the seek and the live RAF loop fighting over
   `simRef` in the same frame.
+- **`FieldCanvas` is still the one playhead owner — the dashboard below the
+  field does not get its own.** It reaches the outside world two ways: an
+  `onPlaybackUpdate({t, duration, sim})` callback (fired from the RAF loop at
+  the same throttle as the internal deck's readout, from every scrub/step,
+  and from a `play`-change effect so duration never goes stale after an edit)
+  mirrors the playhead into `PlotBoard`'s own state for the dashboard to read;
+  and a `forwardRef`/`useImperativeHandle` handle (`{ scrub, step }`) — the
+  *exact* functions the internal `PlaybackDeck` already calls — lets the
+  dashboard's timeline drive the same playhead back (e.g. clicking an event
+  marker). There is deliberately no second scrub implementation.
+- **Coaching notes (`PlayState.assignments`, `.callNotes`) are metadata, like
+  `name`.** Edited directly via `setPlay`, not through `commit`/undo, and
+  excluded from `history.ts`'s `Snapshot` for the same reason `name` is: a
+  coaching note is not the kind of thing Ctrl+Z should undo mid-keystroke.
+  They ride to persistence through the *existing* Save/Share path (they're
+  just more fields on the serialized play) — there is no separate autosave
+  pipeline, and building one was out of scope.
+- **There is no sack/tackle mechanic.** The keyframe timeline's four-icon
+  schema asked for one (a crash/X icon distinct from interception), but
+  nothing in `simulation.ts` models a pocket collapsing or a QB going down —
+  see the existing "pass rushers are crude" limitation below. `computePlayEvents`
+  uses the crash icon for **interception** instead (a real, defensive,
+  play-ending stop), documented inline rather than silently repurposed.
 - **"No glows" was reversed.** Every previous mention in this document of a
   hard flat/no-shadow/no-gradient rule described a deliberate design choice
   that held for a while and is **no longer current** — a later brief
@@ -301,6 +329,35 @@ Things that will bite you if you don't know them:
   deterministic as the live run (`verify` checks the two agree bit-for-bit).
   The deck reports the play's estimated duration from the *authored* state, so
   the scrubber has a sensible range even before Play is first pressed.
+- **A three-panel feature dashboard** (`PlayDashboard.tsx`, below the field;
+  desktop-first, `lg:grid-cols-3` at 1024px) drives and reads the same
+  playhead `PlaybackDeck` does:
+  - **Keyframe & Event Timeline** (`KeyframeTimeline.tsx`, full width): a
+    ruler with clickable milestone icons computed once per play by
+    `computePlayEvents` (football = release, shield = deflected, whistle =
+    a clean dead ball, crash/X = interception — standing in for a sack/tackle
+    this engine doesn't model), a hover tooltip with the exact time and
+    context, transport controls, and a "filmstrip" row of equal-time segment
+    blocks (not literal per-frame thumbnails — see the limitations below).
+    Clicking a marker or a segment scrubs straight to it.
+  - **Live Analytics** (`AnalyticsPanel.tsx`): a Time-to-Throw readout that
+    counts up live pre-release and freezes at the true release moment after
+    (color-coded green/amber/red past `TTT_WARN_S`/`TTT_DANGER_S`), route
+    depth and separation for the play's primary receiver against the nearest
+    defender, and a small rule-based coverage status
+    (`MAN-LOCK`/`MISMATCH DETECTED`/`ZONE SET`/`ZONE BROKEN`/`PRE-SNAP`).
+    Every number is a real computation over `SimState` positions
+    (`src/lib/analytics.ts`, DOM-free) — none of it is fabricated.
+  - **Coaching Assignments & Notes** (`CoachingGrid.tsx`): a per-player note
+    badge-colour-matched to that player's on-field token, plus three
+    situational play-call fields (down & distance, defensive counters,
+    execution risks). Both map directly onto `PlayState` (`assignments`,
+    `callNotes`) and ride to persistence through the *existing* Save/Share
+    path — there is no separate autosave pipeline.
+
+  All three panels use `Section` (this project's existing accordion
+  primitive) rather than a bespoke breakpoint-gated collapse mechanic, so
+  they're collapsible everywhere, not conditionally below 1024px.
 - **Undo/redo** over snapshots (alignments, routes, pass target, *and* the line
   of scrimmage). **Shortcuts**: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, Space =
   play/pause, R = reset, D = toggle Draw Route Mode, Esc = deselect (and cancels
@@ -362,7 +419,7 @@ size. Leaving it on roughly quadruples the file (measured: 2.0 MB → 517 KB).
 
 ## 6. How this was verified
 
-**`npm run verify` — 121 headless assertions.** This closes the "no automated
+**`npm run verify` — 147 headless assertions.** This closes the "no automated
 tests" gap the previous handoff called its top infrastructure priority (§8).
 Covers: path length/nearest-point math, preset mirroring, release timing, arc
 monotonicity, ball landing on target, outcome agreeing with the nearest player,
@@ -393,6 +450,18 @@ accepts a free-throw target's null receiver on round-trip; and `simulateTo`
 (the scrubber's engine) agrees, to floating-point tolerance, with stepping
 there incrementally — the load-bearing assumption behind letting the scrubber
 replay from scratch instead of holding a second live simulation.
+
+Added with the feature dashboard: `timeToThrow` matches the exact frame the
+ball actually left (cross-checked against the throw-physics section's own
+release-timing trace), pre-snap tracking works before a sim exists, the
+primary receiver correctly falls back from the placed target to the longest
+drawn route to `null`, coverage status resolves to a real (non-`PRE-SNAP`)
+value once a play has run, and `computePlayEvents` always finds a release
+before an end-of-play event, in chronological order, whose `kind` agrees with
+the sim's actual `outcome`. Also added: schema round-tripping and rejection
+for `assignments`/`callNotes` (an unknown player id, an oversized note field,
+a non-object `callNotes`), and that both default to empty on an older share
+that predates them.
 
 Browser-side, verified by sampling canvas pixels and driving synthetic
 `PointerEvent`s: exact palette values (grass reads `20,83,45` = `#14532D`), player
@@ -433,6 +502,20 @@ on-theme-change path in particular have only been read, not seen. This is a
 strictly higher-value "look at it in a real browser" than the previous
 entries in this section, precisely because the whole point of the change was
 visual.
+
+**Same again for the three-panel feature dashboard** (`PlayDashboard`,
+`KeyframeTimeline`, `AnalyticsPanel`, `CoachingGrid`, and the `FieldCanvas`
+ref/callback plumbing that feeds them): `tsc`, `eslint`, `npm run build`, and
+`npm run verify` (147/147) are all green, and a fresh dev-server `curl`
+confirms the new markup ("Keyframe", "Live Analytics", "Coaching Assignments",
+"Time to Throw") renders with no server-side exceptions. The analytics *math*
+is covered by `verify` (see above) — what is **not** verified is the
+interactive part: clicking an event marker or a filmstrip segment and
+watching the field's playhead actually jump there, dragging the ruler,
+typing into a coaching note and having it survive a Save, or how the
+`lg:grid-cols-3` → stacked-accordion responsive collapse actually looks
+below 1024px. Same standing recommendation as every entry above: open it in
+a real browser before trusting the interaction, not just the computation.
 
 ## 7. Bugs found and fixed
 
@@ -481,7 +564,27 @@ visual.
   4-3 personnel matters, the roster needs to grow past 7.
 - **Pass rushers are crude.** Linemen beeline for the QB's *alignment* at
   constant speed; there is no blocking, no pocket, and no sack. They exist so
-  that defensive linemen aren't inert, not because the rush is modelled.
+  that defensive linemen aren't inert, not because the rush is modelled. The
+  keyframe timeline's crash/X icon, asked for as "sack/tackle", uses
+  **interception** instead — the one real, defensive, play-ending stop this
+  engine has. If a sack mechanic is ever added, that's the icon it should
+  actually drive, and interception will need a different one.
+- **The keyframe timeline's "filmstrip" is equal-time segment blocks, not
+  per-frame thumbnails.** A real thumbnail per segment would mean an
+  offscreen replay per segment — which is what GIF export already does, at a
+  fixed low frame rate, for a real export — and doing that live for a
+  scrubbing UI would be needlessly expensive for what is, honestly, a
+  decorative filmstrip. The event markers and the scrubhead are the part
+  that's load-bearing; the filmstrip is texture.
+- **Coverage analysis is a small, honest heuristic, not route recognition.**
+  `coverageStatus` (`src/lib/analytics.ts`) knows exactly one thing: the
+  separation between the play's primary receiver and the nearest defender,
+  read against a threshold appropriate to man vs. zone. It has no notion of
+  leverage, technique, or which specific defender "should" have help — it is
+  a real computation over real positions, but a simple one, not NFL-grade
+  analytics. Likewise, "primary receiver" falls back from the placed pass
+  target to whichever route is longest when no target is set, which is a
+  reasonable guess, not a guarantee of picking the play's actual first read.
 - **"Change Position/Role" from the context menu is cosmetic.** It rewrites
   `label` only, cycling through a small pool per team; it does not touch `id`,
   so routes, man/zone assignments and the pass target — all keyed by `id` —

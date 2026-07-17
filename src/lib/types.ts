@@ -48,6 +48,24 @@ export interface PassTarget {
 }
 
 /**
+ * A coaching note per player, keyed by id — e.g. "Execute a 12-yard slant to
+ * draw the FS shallow." Metadata, not geometry: like `name`, it is excluded
+ * from the undo/redo `Snapshot` (see `history.ts`), since re-typing a note is
+ * not the kind of thing Ctrl+Z should undo mid-edit.
+ */
+export type Assignments = Record<string, string>;
+
+/** Macro-level strategic context for the play call, not tied to any one player. */
+export interface CallNotes {
+  /** e.g. "3rd & Medium". */
+  downDistance: string;
+  /** e.g. "Exploits aggressive Cover 2". */
+  counters: string;
+  /** e.g. "Deep comeback is a low-percentage throw outside the numbers." */
+  risks: string;
+}
+
+/**
  * The full authored state of a play. This is the unit that gets snapshotted
  * for undo/redo and serialized to the database.
  */
@@ -72,6 +90,8 @@ export interface PlayState {
   /** Player id -> ordered route waypoints in world yards. */
   routes: Record<string, Point[]>;
   passTarget: PassTarget | null;
+  assignments: Assignments;
+  callNotes: CallNotes;
 }
 
 export type BallPhase = "held" | "flight" | "landed";
@@ -112,4 +132,20 @@ export interface SimState {
   landedAt: number | null;
   /** True once every scripted element of the play has resolved. */
   finished: boolean;
+}
+
+/**
+ * A milestone on the keyframe timeline. `kind` drives which icon a caller
+ * draws; there is no sack/tackle mechanic in this simulation (see
+ * `computePlayEvents` in `simulation.ts`), so "interception" stands in for
+ * the defensive-stop icon rather than inventing a mechanic that doesn't run.
+ */
+export type PlayEventKind = "release" | "deflected" | "dead" | "interception";
+
+export interface PlayEvent {
+  kind: PlayEventKind;
+  /** Seconds since the snap. */
+  t: number;
+  label: string;
+  detail: string;
 }

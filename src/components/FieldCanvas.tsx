@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   LOS_HIT_RADIUS,
   LOS_MAX_X,
@@ -59,6 +59,23 @@ interface Props {
   onPlaceTarget: (target: PassTarget) => void;
   onTogglePlay: () => void;
   onReset: () => void;
+  /**
+   * Fires whenever the playhead moves (live playback, a scrub, a step, or a
+   * reset) and whenever the authored play changes the estimated duration.
+   * This is how the play dashboard below the field (the keyframe timeline,
+   * live analytics, and so on) stays synchronized to the same playhead the
+   * `PlaybackDeck` above it drives — both read from this one callback rather
+   * than owning a second notion of "where we are in the play".
+   */
+  onPlaybackUpdate?: (update: { t: number; duration: number; sim: SimState | null }) => void;
+}
+
+/** Imperative controls exposed to a parent that wants to drive the same
+ *  playhead the internal `PlaybackDeck` does — e.g. clicking an event marker
+ *  on the keyframe timeline to seek straight to that frame. */
+export interface FieldCanvasHandle {
+  scrub: (t: number) => void;
+  step: (deltaSeconds: number) => void;
 }
 
 /**
@@ -107,30 +124,35 @@ const MAX_FRAME_DT = 1 / 20;
 const TIME_SYNC_MS = 80;
 
 /** Cosmetic role labels a right-clicked token can be cycled through. Purely a
- *  display label — ids, speeds and assignments are untouched. */
+ *  display label — ids, speeds and man/zone coverage assignments are
+ *  untouched. (Unrelated to `PlayState.assignments`, the coaching notes.) */
 const ROLE_CYCLE: Record<PlayerDef["team"], string[]> = {
   offense: ["WR", "SLOT", "TE", "RB", "FB"],
   defense: ["CB", "S", "LB", "NB", "DL"],
 };
 
-export default function FieldCanvas({
-  play,
-  selectedId,
-  isPlaying,
-  drawMode,
-  speed,
-  resetId,
-  transitionId,
-  isPlacingPassTarget,
-  theme,
-  onSelect,
-  onPlayChange,
-  onCommit,
-  onFinished,
-  onPlaceTarget,
-  onTogglePlay,
-  onReset,
-}: Props) {
+function FieldCanvas(
+  {
+    play,
+    selectedId,
+    isPlaying,
+    drawMode,
+    speed,
+    resetId,
+    transitionId,
+    isPlacingPassTarget,
+    theme,
+    onSelect,
+    onPlayChange,
+    onCommit,
+    onFinished,
+    onPlaceTarget,
+    onTogglePlay,
+    onReset,
+    onPlaybackUpdate,
+  }: Props,
+  ref: React.ForwardedRef<FieldCanvasHandle>
+) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [view, setView] = useState<View>(() => makeView(960));
@@ -158,12 +180,31 @@ export default function FieldCanvas({
   // `playbackT` tracks whatever simulation is actually loaded (live or seeked).
   const [playbackT, setPlaybackT] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
+  const simRef = useRef<{ ctx: SimContext; sim: SimState } | null>(null);
+  /** Mirrors `playbackDuration` for synchronous reads from callbacks. */
+  const playbackDurationRef = useRef(0);
+  const onPlaybackUpdateRef = useRef(onPlaybackUpdate);
+  useEffect(() => {
+    onPlaybackUpdateRef.current = onPlaybackUpdate;
+  });
+
+  /** Updates the local readout and notifies the parent dashboard, in one place. */
+  const reportPlayback = useCallback((t: number, sim: SimState | null) => {
+    setPlaybackT(t);
+    onPlaybackUpdateRef.current?.({ t, duration: playbackDurationRef.current, sim });
+  }, []);
+
   useEffect(() => {
     // The deck's duration tracks the authored play (owned by the parent), not
     // an in-progress simulation, so it updates the moment a route changes —
-    // before Play is ever pressed.
+    // before Play is ever pressed. Reported immediately (rather than waiting
+    // for the next scrub/step) so the dashboard's timeline never shows a
+    // stale duration for an edit that hasn't been played since.
+    const duration = estimateDuration(createContext(play));
+    playbackDurationRef.current = duration;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see note above
-    setPlaybackDuration(estimateDuration(createContext(play)));
+    setPlaybackDuration(duration);
+    onPlaybackUpdateRef.current?.({ t: simRef.current?.sim.t ?? 0, duration, sim: simRef.current?.sim ?? null });
   }, [play]);
 
   // The animation loop reads live values through refs so that re-renders never
@@ -195,7 +236,6 @@ export default function FieldCanvas({
     viewRef.current = view;
   });
 
-  const simRef = useRef<{ ctx: SimContext; sim: SimState } | null>(null);
   /** Guards `onFinished` so a resolved play reports completion exactly once. */
   const notifiedRef = useRef(false);
   const interactionRef = useRef<Interaction>({ kind: "none" });
@@ -263,8 +303,8 @@ export default function FieldCanvas({
   const invalidateSim = useCallback(() => {
     simRef.current = null;
     notifiedRef.current = false;
-    setPlaybackT(0);
-  }, []);
+    reportPlayback(0, null);
+  }, [reportPlayback]);
 
   /** Returns the loaded simulation, lazily creating one from the current play. */
   const ensureSim = useCallback(() => {
@@ -405,12 +445,12 @@ export default function FieldCanvas({
 
         if (now - lastTimeSyncRef.current > TIME_SYNC_MS) {
           lastTimeSyncRef.current = now;
-          setPlaybackT(active.sim.t);
+          reportPlayback(active.sim.t, active.sim);
         }
 
         if (active.sim.finished && !notifiedRef.current) {
           notifiedRef.current = true;
-          setPlaybackT(active.sim.t);
+          reportPlayback(active.sim.t, active.sim);
           latest.current.onFinished();
         }
       }
@@ -421,7 +461,7 @@ export default function FieldCanvas({
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, draw]);
+  }, [isPlaying, draw, reportPlayback]);
 
   // Routes, the passing lane and the QB guides all march continuously
   // whenever the board is idle and not mid-draw — a deliberately broader
@@ -501,10 +541,10 @@ export default function FieldCanvas({
       const sim = simulateTo(entry.ctx, Math.min(Math.max(0, t), duration));
       simRef.current = { ctx: entry.ctx, sim };
       notifiedRef.current = sim.finished;
-      setPlaybackT(sim.t);
+      reportPlayback(sim.t, sim);
       draw();
     },
-    [ensureSim, draw]
+    [ensureSim, draw, reportPlayback]
   );
 
   const onStep = useCallback(
@@ -514,6 +554,11 @@ export default function FieldCanvas({
     },
     [onScrub]
   );
+
+  // The play dashboard below the field drives this same playhead (e.g.
+  // clicking a timeline event marker), so it gets the same scrub/step
+  // functions the internal PlaybackDeck uses — not a second implementation.
+  useImperativeHandle(ref, () => ({ scrub: onScrub, step: onStep }), [onScrub, onStep]);
 
   // --- Interaction --------------------------------------------------------
 
@@ -1068,3 +1113,5 @@ export default function FieldCanvas({
     </div>
   );
 }
+
+export default forwardRef(FieldCanvas);

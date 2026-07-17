@@ -7,6 +7,13 @@
  */
 
 import {
+  coverageStatus,
+  primaryReceiverId,
+  routeDepthAndSeparation,
+  timeToThrow,
+  timeToThrowTier,
+} from "../src/lib/analytics";
+import {
   CATCH_RADIUS,
   FIELD_CENTER_Y,
   FIELD_LENGTH,
@@ -30,6 +37,7 @@ import {
 import { parsePlayState } from "../src/lib/playSchema";
 import { buildPresetRoute } from "../src/lib/routePresets";
 import {
+  computePlayEvents,
   createContext,
   createInitialSim,
   routeProgress,
@@ -64,6 +72,9 @@ function section(name: string) {
   console.log(`\n${name}`);
 }
 
+/** Blank coaching metadata, for test plays that don't exercise it. */
+const NO_NOTES = { downDistance: "", counters: "", risks: "" };
+
 /** Builds a spread play with a slant to WR1 and a target on that route. */
 function buildTestPlay(coverage: CoverageId = "man"): PlayState {
   const players = buildFormation("spread", "4-3", LOS_X);
@@ -83,6 +94,8 @@ function buildTestPlay(coverage: CoverageId = "man"): PlayState {
     players,
     routes: { WR1: route },
     passTarget: { x: aim.point.x, y: aim.point.y, receiverId: "WR1", t: aim.t },
+    assignments: {},
+    callNotes: NO_NOTES,
   };
 }
 
@@ -394,6 +407,8 @@ section("Pass Target Tool");
     players,
     routes: {},
     passTarget: { x: wr2.startX, y: wr2.startY, receiverId: "WR2", t: 0 },
+    assignments: {},
+    callNotes: NO_NOTES,
   };
   const hitchRun = runToCompletion(hitch);
   check(
@@ -416,6 +431,8 @@ section("Pass Target Tool");
     players: rushOnQb,
     routes: {},
     passTarget: { x: LOS_X + 30, y: FIELD_CENTER_Y, receiverId: null, t: 0 },
+    assignments: {},
+    callNotes: NO_NOTES,
   };
   const contestedRun = runToCompletion(contested);
   check(
@@ -448,6 +465,77 @@ section("Pass Target Tool");
   // A route-schema round-trip must accept a free-throw target's null receiver.
   const roundTripped = parsePlayState(JSON.parse(JSON.stringify(free)));
   check("schema accepts a free-throw target (null receiverId)", roundTripped?.passTarget?.receiverId === null);
+}
+
+// --- Analytics & timeline events ------------------------------------------
+
+section("Analytics & timeline events");
+{
+  const play = buildTestPlay("man");
+  const ctx = createContext(play);
+
+  // Pre-snap: no sim loaded yet.
+  check("time to throw is null before a run exists", timeToThrow(null) === null);
+  check("coverage status is PRE-SNAP before a run exists", coverageStatus(play, null) === "PRE-SNAP");
+  check("primary receiver falls back to the placed target", primaryReceiverId(play) === "WR1");
+
+  const noTarget: PlayState = { ...play, passTarget: null };
+  check(
+    "primary receiver falls back to the longest route with no target placed",
+    primaryReceiverId(noTarget) === "WR1"
+  );
+
+  const untargeted: PlayState = { ...play, routes: {}, passTarget: null };
+  check("primary receiver is null with no routes and no target", primaryReceiverId(untargeted) === null);
+
+  // Pre-snap route tracking reads the alignment, not a live sim.
+  const preSnap = routeDepthAndSeparation(play, null);
+  check("pre-snap tracking still reports a receiver", preSnap?.receiverId === "WR1");
+  check("pre-snap separation is finite (someone is on the field)", Number.isFinite(preSnap?.separation));
+
+  // Run to completion and sample time-to-throw against the same release
+  // frame the throw-physics section already pins down.
+  const { sim, trace } = runToCompletion(play);
+  const releaseFrame = trace.find((s) => s.phase === "flight");
+  const ttt = timeToThrow(sim);
+  check("time to throw is reported once the sim has run", ttt !== null && ttt.released);
+  check(
+    "time to throw matches the frame the ball actually left",
+    ttt !== null && releaseFrame !== undefined && Math.abs(ttt.seconds - (releaseFrame.t - 1 / 60)) < 0.05,
+    `ttt=${ttt?.seconds.toFixed(3)} release~${((releaseFrame?.t ?? 0) - 1 / 60).toFixed(3)}`
+  );
+  check("time to throw tiers are ordered", timeToThrowTier(1) === "safe" && timeToThrowTier(2) === "warning" && timeToThrowTier(3) === "danger");
+
+  const live = routeDepthAndSeparation(play, sim);
+  check("live tracking still reports the primary receiver", live?.receiverId === "WR1");
+  check(
+    "the receiver has moved downfield of where they lined up",
+    live !== null && live.depth > preSnap!.depth
+  );
+
+  const liveCoverage = coverageStatus(play, sim);
+  check(
+    "coverage status resolves to a real status once the sim has run",
+    liveCoverage === "MAN-LOCK" || liveCoverage === "MISMATCH DETECTED"
+  );
+
+  // Timeline events: a release always precedes the play ending, and the kind
+  // agrees with the outcome the sim actually resolved to.
+  const events = computePlayEvents(ctx);
+  check("computePlayEvents finds a release", events.some((e) => e.kind === "release"));
+  const endEvent = events.find((e) => e.kind !== "release");
+  check("computePlayEvents finds an end-of-play event", endEvent !== undefined);
+  check(
+    "events are in chronological order",
+    events.every((e, i) => i === 0 || e.t >= events[i - 1].t)
+  );
+  const expectedKind =
+    sim.outcome === "Pass Deflected!" ? "deflected" : sim.outcome === "Intercepted!" ? "interception" : "dead";
+  check(
+    "the end event's kind agrees with the sim's outcome",
+    endEvent?.kind === expectedKind,
+    `outcome=${sim.outcome} kind=${endEvent?.kind}`
+  );
 }
 
 // --- Movement integrity --------------------------------------------------
@@ -509,6 +597,8 @@ section("Defensive AI");
     players: buildFormation("spread", "4-3", LOS_X),
     routes: {},
     passTarget: null,
+    assignments: {},
+    callNotes: NO_NOTES,
   };
   const zone = runToCompletion(bare);
   const cb1 = zone.sim.players["CB1"];
@@ -672,6 +762,8 @@ section("Schema validation");
   delete noExtras.losX;
   delete noExtras.defenseFormation;
   delete noExtras.name;
+  delete noExtras.assignments;
+  delete noExtras.callNotes;
   const older = parsePlayState(noExtras);
   check("accepts a play saved before the line of scrimmage moved", older !== null);
   check("defaults a missing line of scrimmage", older?.losX === LOS_X);
@@ -680,6 +772,32 @@ section("Schema validation");
   // link shared before plays had names must not be rejected for lacking one.
   check("accepts a play with no name", older?.name === "");
   check("accepts an explicitly empty name", parsePlayState({ ...play, name: "" })?.name === "");
+  // Coaching assignments/notes were added later still; older shares must
+  // default to empty rather than being rejected for lacking them.
+  check("defaults missing assignments to empty", Object.keys(older?.assignments ?? { x: 1 }).length === 0);
+  check(
+    "defaults missing call notes to blank fields",
+    older?.callNotes.downDistance === "" && older?.callNotes.counters === "" && older?.callNotes.risks === ""
+  );
+
+  const withNotes = parsePlayState({
+    ...play,
+    assignments: { WR1: "Run the slant at 70% speed to sell vertical first." },
+    callNotes: { downDistance: "3rd & Medium", counters: "Exploits aggressive Cover 2", risks: "" },
+  });
+  check("accepts assignments and call notes", withNotes !== null);
+  check("round-trip preserves an assignment", Boolean(withNotes?.assignments.WR1?.startsWith("Run the slant")));
+  check("round-trip preserves call notes", withNotes?.callNotes.downDistance === "3rd & Medium");
+
+  const badNotes: [string, unknown][] = [
+    ["an assignment for an unknown player", { ...play, assignments: { GHOST: "note" } }],
+    ["an oversized assignment", { ...play, assignments: { WR1: "x".repeat(1000) } }],
+    ["a non-object call notes", { ...play, callNotes: "not an object" }],
+    ["an oversized call notes field", { ...play, callNotes: { downDistance: "x".repeat(5000), counters: "", risks: "" } }],
+  ];
+  for (const [label, value] of badNotes) {
+    check(`rejects ${label}`, parsePlayState(value) === null);
+  }
 
   // A payload built to be huge must not be accepted.
   const huge = { ...play, routes: { WR1: Array.from({ length: 5000 }, () => ({ x: 1, y: 1 })) } };

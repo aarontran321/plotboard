@@ -26,10 +26,12 @@ import type {
   PassTarget,
   PlayState,
   RoutePresetId,
+  SimState,
 } from "@/lib/types";
-import FieldCanvas from "./FieldCanvas";
+import FieldCanvas, { type FieldCanvasHandle } from "./FieldCanvas";
 import LeftPanel from "./LeftPanel";
 import NamePlayDialog from "./NamePlayDialog";
+import PlayDashboard from "./PlayDashboard";
 import PlayNameBar from "./PlayNameBar";
 import RightPanel, { type ActionState } from "./RightPanel";
 
@@ -66,6 +68,8 @@ export function createDefaultPlay(): PlayState {
     players,
     routes,
     passTarget: { x: spot.x, y: spot.y, receiverId: "WR1", t: 0.75 },
+    assignments: {},
+    callNotes: { downDistance: "", counters: "", risks: "" },
   };
 }
 
@@ -94,6 +98,22 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [shareState, setShareState] = useState<ActionState>({ status: "idle" });
   const [exportState, setExportState] = useState<ActionState>({ status: "idle" });
   const [saveState, setSaveState] = useState<ActionState>({ status: "idle" });
+
+  /**
+   * The play dashboard (keyframe timeline, live analytics, coaching grid)
+   * mirrors the same playhead `FieldCanvas`'s own `PlaybackDeck` drives, via
+   * `onPlaybackUpdate` below — it does not own a second notion of "where we
+   * are in the play". `fieldCanvasRef` is the other half of that: it lets the
+   * dashboard's timeline drive the playhead back (e.g. clicking an event
+   * marker to seek), reusing the exact same scrub/step FieldCanvas already
+   * implements for its own deck rather than a second implementation.
+   */
+  const fieldCanvasRef = useRef<FieldCanvasHandle>(null);
+  const [playback, setPlayback] = useState<{ t: number; duration: number; sim: SimState | null }>({
+    t: 0,
+    duration: 0,
+    sim: null,
+  });
 
   // The play library lives in localStorage, which does not exist during SSR, so
   // it is read after mount and mirrored here.
@@ -187,6 +207,20 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     setSavedPlays(listSavedPlays());
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  /**
+   * Coaching assignments and play-call notes, like the play's name, are
+   * metadata rather than geometry — edited directly, with no undo entry,
+   * the same way `onName` works below. They ride to persistence with
+   * everything else the next time the play is saved or shared.
+   */
+  const onAssignmentChange = (playerId: string, note: string) => {
+    setPlay({ ...play, assignments: { ...play.assignments, [playerId]: note } });
+  };
+
+  const onCallNotesChange = (next: Partial<PlayState["callNotes"]>) => {
+    setPlay({ ...play, callNotes: { ...play.callNotes, ...next } });
+  };
 
   /** Writes the current play into the library under the name in the input. */
   const onSavePlay = () => {
@@ -516,6 +550,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
 
           <div className="relative rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl">
             <FieldCanvas
+              ref={fieldCanvasRef}
               play={play}
               selectedId={selectedId}
               isPlaying={isPlaying}
@@ -532,6 +567,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               onPlaceTarget={onPlaceTarget}
               onTogglePlay={onTogglePlay}
               onReset={onReset}
+              onPlaybackUpdate={setPlayback}
             />
 
             {isExporting && (
@@ -551,6 +587,20 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
                 : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click to drag several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
           </p>
+
+          <PlayDashboard
+            play={play}
+            playbackT={playback.t}
+            playbackDuration={playback.duration}
+            sim={playback.sim}
+            isPlaying={isPlaying}
+            disabled={locked}
+            onTogglePlay={onTogglePlay}
+            onScrub={(t) => fieldCanvasRef.current?.scrub(t)}
+            onStep={(delta) => fieldCanvasRef.current?.step(delta)}
+            onAssignmentChange={onAssignmentChange}
+            onCallNotesChange={onCallNotesChange}
+          />
         </main>
 
         <RightPanel

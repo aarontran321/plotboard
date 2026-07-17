@@ -7,7 +7,7 @@ import {
   zoneAssignments,
 } from "./formations";
 import { flattenPath, moveToward, pointAtDistance, type FlatPath } from "./geometry";
-import type { Outcome, PlayState, Point, SimState, ZoneAssignment } from "./types";
+import type { Outcome, PlayEvent, PlayState, Point, SimState, ZoneAssignment } from "./types";
 
 /** Gravity in yards/second^2 (32.174 ft/s^2 converted from feet). */
 const GRAVITY = 32.174 / 3;
@@ -387,4 +387,69 @@ export function simulateTo(ctx: SimContext, targetT: number, step = 1 / 120): Si
     stepSim(sim, ctx, Math.min(step, clamped - sim.t));
   }
   return sim;
+}
+
+/**
+ * Runs a play once, start to finish, recording the timestamp of each
+ * milestone the keyframe timeline marks: when the ball leaves the QB's hand,
+ * and however the play ends (a clean whistle, a deflection, or an
+ * interception). Computed once per play the same way `estimateDuration` is —
+ * a full deterministic replay — rather than threaded through the live sim,
+ * since the timeline needs every event up front to place its icons.
+ *
+ * There is no sack/tackle in this engine (pass rushers have no pocket to
+ * collapse and no sack resolution — see `HANDOFF.md`), so a caller wanting a
+ * fourth, more violent icon for that slot should use `"interception"`: it is
+ * the one outcome here that is genuinely a defensive, play-ending stop.
+ */
+export function computePlayEvents(ctx: SimContext, step = 1 / 120): PlayEvent[] {
+  const sim = createInitialSim(ctx);
+  const events: PlayEvent[] = [];
+  const targetId = ctx.play.passTarget?.receiverId ?? null;
+
+  let sawRelease = false;
+  let sawEnd = false;
+  let guard = 0;
+
+  while (!sim.finished && guard++ < 5000) {
+    stepSim(sim, ctx, step);
+
+    if (!sawRelease && sim.ball) {
+      sawRelease = true;
+      events.push({
+        kind: "release",
+        t: sim.t,
+        label: "Ball Released",
+        detail: targetId ? `QB releases, target ${targetId}` : "QB releases (free throw)",
+      });
+    }
+
+    if (!sawEnd && sim.landedAt !== null) {
+      sawEnd = true;
+      if (sim.outcome === "Pass Deflected!") {
+        events.push({
+          kind: "deflected",
+          t: sim.t,
+          label: "Pass Deflected",
+          detail: "Batted down near the release point",
+        });
+      } else if (sim.outcome === "Intercepted!") {
+        events.push({
+          kind: "interception",
+          t: sim.t,
+          label: "Intercepted",
+          detail: "Defender makes the play",
+        });
+      } else {
+        events.push({
+          kind: "dead",
+          t: sim.t,
+          label: "Play Ends",
+          detail: sim.outcome ?? "Whistle",
+        });
+      }
+    }
+  }
+
+  return events;
 }
