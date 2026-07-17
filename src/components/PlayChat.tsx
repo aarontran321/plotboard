@@ -60,7 +60,7 @@ export default function PlayChat({ play, playbackT, disabled, onScrub }: Props) 
           Draw a route and place a pass target to generate this play&apos;s event feed.
         </p>
       ) : (
-        <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
+        <div className="flex gap-2 overflow-x-auto pb-1">
           {events.map((event, i) => {
             const reached = playbackT >= event.t;
             return (
@@ -70,7 +70,7 @@ export default function PlayChat({ play, playbackT, disabled, onScrub }: Props) 
                 disabled={disabled}
                 onClick={() => onScrub(event.t)}
                 className={
-                  "group relative flex flex-col gap-0.5 rounded-lg border border-white/[0.06] border-l-4 " +
+                  "group relative flex w-44 shrink-0 flex-col gap-0.5 rounded-lg border border-white/[0.06] border-l-4 " +
                   "bg-[#0a0e17]/60 px-2.5 py-2 text-left transition-colors duration-150 " +
                   "enabled:hover:bg-white/[0.05] enabled:cursor-pointer disabled:cursor-not-allowed " +
                   KIND_ACCENT[event.kind] +
@@ -83,11 +83,12 @@ export default function PlayChat({ play, playbackT, disabled, onScrub }: Props) 
                 </div>
                 <p className="truncate text-[11px] text-[#7C8AA5]">{event.detail}</p>
 
-                {/* Tooltip: pure CSS group-hover, no extra state to manage. */}
+                {/* Tooltip: pure CSS group-hover, no extra state to manage.
+                    Rises above the card since the feed now runs horizontally. */}
                 <div
                   role="tooltip"
                   className={
-                    "pointer-events-none absolute top-1/2 left-full z-10 ml-2 w-max max-w-[220px] -translate-y-1/2 " +
+                    "pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-max max-w-[220px] -translate-x-1/2 " +
                     "rounded-md border border-white/10 bg-[#0a0e17] px-2.5 py-1.5 text-[11px] text-[#E5E7EB] " +
                     "opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
                   }

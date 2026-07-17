@@ -22,16 +22,11 @@ interface Props {
   canUndo: boolean;
   canRedo: boolean;
   disabled: boolean;
-  shareEnabled: boolean;
-  shareState: ActionState;
-  exportState: ActionState;
   onPreset: (preset: RoutePresetId) => void;
   onClearRoute: () => void;
   onResetAllRoutes: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  onShare: () => void;
-  onExport: () => void;
   saveState: ActionState;
   savedPlays: SavedPlaySummary[];
   activeSavedId: string | null;
@@ -73,16 +68,11 @@ export default function RightPanel({
   canUndo,
   canRedo,
   disabled,
-  shareEnabled,
-  shareState,
-  exportState,
   onPreset,
   onClearRoute,
   onResetAllRoutes,
   onUndo,
   onRedo,
-  onShare,
-  onExport,
   saveState,
   savedPlays,
   activeSavedId,
@@ -180,31 +170,6 @@ export default function RightPanel({
           </Button>
         </div>
         <p className="text-[11px] text-[#7C8AA5]">Ctrl+Z to undo, Ctrl+Y or Ctrl+Shift+Z to redo.</p>
-      </Section>
-
-      <Section title="Save &amp; Share">
-        {/* Tier 2, deliberately: Save Play (in the bar above the field) is
-            the interface's one Tier 1 button. Share is a secondary action. */}
-        <Button
-          disabled={disabled || !shareEnabled || shareState.status === "busy"}
-          onClick={onShare}
-        >
-          {shareState.status === "busy" ? "Sharing…" : "Share Play"}
-        </Button>
-        {shareEnabled ? (
-          <Status state={shareState} />
-        ) : (
-          <p className="text-[12px] text-[#7C8AA5]">
-            Sharing is off until Supabase environment variables are set.
-          </p>
-        )}
-      </Section>
-
-      <Section title="Export Play">
-        <Button disabled={disabled || exportState.status === "busy"} onClick={onExport}>
-          {exportState.status === "busy" ? "Rendering…" : "Export Play (GIF)"}
-        </Button>
-        <Status state={exportState} />
       </Section>
     </Panel>
   );
