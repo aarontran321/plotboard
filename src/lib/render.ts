@@ -5,8 +5,9 @@ import {
   FIELD_WIDTH,
   HASH_Y_BOTTOM,
   HASH_Y_TOP,
-  LOS_X,
+  NEUTRAL_ZONE_DEPTH,
   PLAYER_RADIUS,
+  ROUTE_HANDLE_GAP,
   yardNumberAt,
   type View,
 } from "./field";
@@ -151,10 +152,42 @@ export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
   line(ctx, v, ENDZONE_DEPTH, 0, ENDZONE_DEPTH, FIELD_WIDTH, 2.2, COLORS.line);
   line(ctx, v, FIELD_LENGTH - ENDZONE_DEPTH, 0, FIELD_LENGTH - ENDZONE_DEPTH, FIELD_WIDTH, 2.2, COLORS.line);
 
-  // Line of scrimmage.
+  // The line of scrimmage is deliberately NOT drawn here: this canvas is cached
+  // and only rebuilt on resize, and the line is draggable. It is stroked live
+  // in `drawScrimmage` instead.
+}
+
+/**
+ * The line of scrimmage and its neutral zone.
+ *
+ * Note on orientation: the field runs along +x, so the line of scrimmage is
+ * vertical on screen and constrains each player's *x*, not their y.
+ */
+export function drawScrimmage(ctx: Ctx, v: View, losX: number, active: boolean) {
+  const half = NEUTRAL_ZONE_DEPTH / 2;
+
+  // Neutral zone: a flat translucent band, no gradient.
   ctx.save();
+  ctx.fillStyle = "rgba(96,165,250,0.16)";
+  ctx.fillRect((losX - half) * v.scale, 0, NEUTRAL_ZONE_DEPTH * v.scale, FIELD_WIDTH * v.scale);
+
+  // Its edges are the actual hard boundaries, so they get drawn.
+  ctx.globalAlpha = 0.5;
+  line(ctx, v, losX - half, 0, losX - half, FIELD_WIDTH, 1, COLORS.los);
+  line(ctx, v, losX + half, 0, losX + half, FIELD_WIDTH, 1, COLORS.los);
+  ctx.globalAlpha = 1;
+
   ctx.setLineDash([5, 4]);
-  line(ctx, v, LOS_X, 0, LOS_X, FIELD_WIDTH, 1.4, COLORS.los);
+  line(ctx, v, losX, 0, losX, FIELD_WIDTH, active ? 2.4 : 1.4, COLORS.los);
+  ctx.restore();
+
+  // Grips at both sidelines, marking the line as draggable.
+  ctx.save();
+  ctx.fillStyle = COLORS.los;
+  const w = 0.55 * v.scale;
+  const h = 1.6 * v.scale;
+  ctx.fillRect(losX * v.scale - w / 2, 0, w, h);
+  ctx.fillRect(losX * v.scale - w / 2, FIELD_WIDTH * v.scale - h, w, h);
   ctx.restore();
 }
 
@@ -291,20 +324,58 @@ function drawStar(ctx: Ctx, cx: number, cy: number, r: number, color: string) {
 
 const QB_GOLD = "#EAB308";
 
+export interface PlayerStyle {
+  selected?: boolean;
+  isQB?: boolean;
+  /**
+   * 0..1 boundary-violation flash. Rendered as a flat red ring at falling
+   * opacity — the brief asked for a "red glow", but this project forbids
+   * shadows and gradients outright, so the warning reads through colour and
+   * weight instead.
+   */
+  warn?: number;
+  /** Shown on a selected player in draw mode: the ring you pull a route from. */
+  routeHandle?: boolean;
+}
+
 export function drawPlayer(
   ctx: Ctx,
   v: View,
   pos: Point,
   label: string,
   team: "offense" | "defense",
-  selected: boolean,
-  isQB = false
+  style: PlayerStyle = {}
 ) {
+  const { selected = false, isQB = false, warn = 0, routeHandle = false } = style;
   const cx = pos.x * v.scale;
   const cy = pos.y * v.scale;
   const r = PLAYER_RADIUS * v.scale;
 
   ctx.save();
+
+  if (warn > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, warn);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = COLORS.warning;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // The only grab area that starts a route drag, so it is drawn as a real ring.
+  if (routeHandle) {
+    ctx.save();
+    ctx.setLineDash([3, 3]);
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + ROUTE_HANDLE_GAP * v.scale, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = COLORS.selected;
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // The QB is the anchor of the play, so it gets a second, outer gold ring —
   // set apart from the selection ring, which uses the same yellow family.
@@ -471,6 +542,19 @@ export interface SceneOptions {
   draftRoute: Point[] | null;
   /** Present only while the QB is selected and the play is idle. */
   qbGuide?: QBGuideOptions | null;
+  /** True while the line of scrimmage is grabbed or hovered. */
+  losActive?: boolean;
+  /** True when a route drag is armed, which shows the route handles. */
+  drawMode?: boolean;
+  /** Player id -> 0..1 boundary-warning intensity. */
+  warnings?: Record<string, number>;
+  /**
+   * Purely visual formation transition: player id -> the position to draw them
+   * at instead of their alignment. The authored state jumps immediately; only
+   * the rendering eases, which keeps the simulation and this animation from
+   * ever disagreeing about where a player actually is.
+   */
+  transition?: Record<string, Point> | null;
   /**
    * A pre-rendered field to blit instead of re-stroking every yard line and
    * hash mark. The field only changes when the view resizes, so callers that
@@ -480,13 +564,32 @@ export interface SceneOptions {
 }
 
 export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
-  const { play, sim, selectedId, draftRoute, qbGuide, background } = opts;
+  const {
+    play,
+    sim,
+    selectedId,
+    draftRoute,
+    qbGuide,
+    losActive = false,
+    drawMode = false,
+    warnings,
+    transition,
+    background,
+  } = opts;
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
   else drawField(ctx, v);
 
+  drawScrimmage(ctx, v, play.losX, losActive);
+
   // Zone shells sit under everything else; man coverage has no landmarks.
-  if (play.coverage !== "man") drawZones(ctx, v, zoneAssignments(play.coverage));
+  if (play.coverage !== "man") {
+    drawZones(ctx, v, zoneAssignments(play.coverage, play.players, play.losX));
+  }
+
+  /** Where a player is drawn: live sim position, else transition, else alignment. */
+  const posOf = (p: PlayState["players"][number]): Point | null =>
+    sim ? (sim.players[p.id] ?? null) : (transition?.[p.id] ?? { x: p.startX, y: p.startY });
 
   for (const [id, pts] of Object.entries(play.routes)) {
     if (!pts || pts.length < 2) continue;
@@ -515,9 +618,15 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
   if (play.passTarget) drawPassTarget(ctx, v, play.passTarget);
 
   for (const p of play.players) {
-    const pos = sim ? sim.players[p.id] : { x: p.startX, y: p.startY };
+    const pos = posOf(p);
     if (!pos) continue;
-    drawPlayer(ctx, v, pos, p.label, p.team, p.id === selectedId, p.id === "QB");
+    drawPlayer(ctx, v, pos, p.label, p.team, {
+      selected: p.id === selectedId,
+      isQB: p.id === "QB",
+      warn: warnings?.[p.id] ?? 0,
+      // The handle only means anything on a selected player you can route.
+      routeHandle: drawMode && !sim && p.id === selectedId && p.team === "offense",
+    });
   }
 
   if (sim?.ball) drawBall(ctx, v, sim.ball);

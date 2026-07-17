@@ -1,5 +1,11 @@
 import { CATCH_RADIUS, clampToField, dist } from "./field";
-import { MAN_ASSIGNMENTS, MAN_SAFETY_HELP, zoneAssignments } from "./formations";
+import {
+  isPassRusher,
+  manAssignments,
+  manSafetyHelp,
+  rushTarget,
+  zoneAssignments,
+} from "./formations";
 import { flattenPath, moveToward, pointAtDistance, type FlatPath } from "./geometry";
 import type { Outcome, PlayState, Point, SimState, ZoneAssignment } from "./types";
 
@@ -38,6 +44,12 @@ export interface SimContext {
   play: PlayState;
   paths: Record<string, FlatPath>;
   zones: Record<string, ZoneAssignment>;
+  /** Defender id -> assigned receiver id. Empty unless the call is man. */
+  man: Record<string, string>;
+  /** Deep-middle help landmark for an unassigned safety in man. */
+  safetyHelp: Point;
+  /** Where the pass rush attacks. */
+  rush: Point;
 }
 
 export function createContext(play: PlayState): SimContext {
@@ -48,7 +60,12 @@ export function createContext(play: PlayState): SimContext {
   return {
     play,
     paths,
-    zones: play.coverage === "man" ? {} : zoneAssignments(play.coverage),
+    // Assignments follow the personnel actually on the field, so both dropdowns
+    // can change the roster without leaving anyone uncovered.
+    zones: play.coverage === "man" ? {} : zoneAssignments(play.coverage, play.players, play.losX),
+    man: play.coverage === "man" ? manAssignments(play.players) : {},
+    safetyHelp: manSafetyHelp(play.losX),
+    rush: rushTarget(play.players, play.losX),
   };
 }
 
@@ -74,9 +91,12 @@ function sampleTrail(trail: { t: number; x: number; y: number }[], targetT: numb
   return { x: trail[0].x, y: trail[0].y };
 }
 
-/** How deep the quarterback drops when no explicit route is drawn for him. */
+/**
+ * How deep the quarterback drops when no explicit route is drawn for him.
+ * A shotgun/empty quarterback is already off the line, so he only settles.
+ */
 function dropDepth(ctx: SimContext) {
-  return ctx.play.formation === "shotgun-spread" ? 2 : 5;
+  return ctx.play.formation === "spread" || ctx.play.formation === "empty" ? 2 : 5;
 }
 
 function advanceAlongRoute(
@@ -155,13 +175,21 @@ function stepDefense(sim: SimState, ctx: SimContext, dt: number) {
 
     let spot: Point;
 
+    // Linemen rush the passer regardless of the coverage behind them.
+    if (isPassRusher(p.id)) {
+      const next = moveToward(ps, ctx.rush, p.speed * dt);
+      ps.x = next.x;
+      ps.y = next.y;
+      continue;
+    }
+
     if (ctx.play.coverage === "man") {
-      const assignedId = MAN_ASSIGNMENTS[p.id];
+      const assignedId = ctx.man[p.id];
       if (assignedId && sim.players[assignedId]) {
         spot = sampleTrail(sim.players[assignedId].trail, lookback);
       } else {
-        // The free safety has no man; he works to deep middle help.
-        spot = MAN_SAFETY_HELP;
+        // A defender with no man (the single-high safety) works deep middle help.
+        spot = ctx.safetyHelp;
       }
     } else {
       const zone = ctx.zones[p.id];

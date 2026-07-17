@@ -1,69 +1,111 @@
 "use client";
 
-import { COVERAGE_LABELS, FORMATION_LABELS } from "@/lib/formations";
-import type { CoverageId, FormationId } from "@/lib/types";
-import { Badge, Button, Panel, Section } from "./ui";
+import {
+  COVERAGE_LABELS,
+  DEFENSE_FORMATION_LABELS,
+  FORMATION_LABELS,
+} from "@/lib/formations";
+import type { CoverageId, DefenseFormationId, FormationId } from "@/lib/types";
+import { Badge, Button, Panel, Section, Select } from "./ui";
 
 interface Props {
   formation: FormationId;
+  defenseFormation: DefenseFormationId;
   coverage: CoverageId;
   speed: number;
   isPlaying: boolean;
+  drawMode: boolean;
   disabled: boolean;
   onFormation: (f: FormationId) => void;
+  onDefenseFormation: (d: DefenseFormationId) => void;
   onCoverage: (c: CoverageId) => void;
   onSpeed: (s: number) => void;
+  onDrawMode: (on: boolean) => void;
   onTogglePlay: () => void;
   onReset: () => void;
 }
 
 const FORMATIONS = Object.keys(FORMATION_LABELS) as FormationId[];
+const DEFENSE_FORMATIONS = Object.keys(DEFENSE_FORMATION_LABELS) as DefenseFormationId[];
 const COVERAGES = Object.keys(COVERAGE_LABELS) as CoverageId[];
 
 export default function LeftPanel({
   formation,
+  defenseFormation,
   coverage,
   speed,
   isPlaying,
+  drawMode,
   disabled,
   onFormation,
+  onDefenseFormation,
   onCoverage,
   onSpeed,
+  onDrawMode,
   onTogglePlay,
   onReset,
 }: Props) {
   return (
     <Panel>
-      <Section title="Formation">
-        <div className="flex flex-col gap-1.5">
+      <Section title="Offense Formation">
+        <Select
+          value={formation}
+          disabled={disabled}
+          aria-label="Offense formation"
+          onChange={(e) => onFormation(e.target.value as FormationId)}
+        >
           {FORMATIONS.map((f) => (
-            <Button
-              key={f}
-              active={formation === f}
-              disabled={disabled}
-              onClick={() => onFormation(f)}
-              className="text-left"
-            >
+            <option key={f} value={f}>
               {FORMATION_LABELS[f]}
-            </Button>
+            </option>
           ))}
-        </div>
+        </Select>
+      </Section>
+
+      <Section title="Defense Formation">
+        <Select
+          value={defenseFormation}
+          disabled={disabled}
+          aria-label="Defense formation"
+          onChange={(e) => onDefenseFormation(e.target.value as DefenseFormationId)}
+        >
+          {DEFENSE_FORMATIONS.map((d) => (
+            <option key={d} value={d}>
+              {DEFENSE_FORMATION_LABELS[d]}
+            </option>
+          ))}
+        </Select>
       </Section>
 
       <Section title="Defensive Coverage">
-        <div className="flex flex-col gap-1.5">
+        <Select
+          value={coverage}
+          disabled={disabled}
+          aria-label="Defensive coverage"
+          onChange={(e) => onCoverage(e.target.value as CoverageId)}
+        >
           {COVERAGES.map((c) => (
-            <Button
-              key={c}
-              active={coverage === c}
-              disabled={disabled}
-              onClick={() => onCoverage(c)}
-              className="text-left"
-            >
+            <option key={c} value={c}>
               {COVERAGE_LABELS[c]}
-            </Button>
+            </option>
           ))}
-        </div>
+        </Select>
+      </Section>
+
+      <Section title="Tool">
+        <Button
+          active={drawMode}
+          disabled={disabled}
+          onClick={() => onDrawMode(!drawMode)}
+          aria-pressed={drawMode}
+        >
+          {drawMode ? "Draw Route Mode: On" : "Draw Route Mode: Off"}
+        </Button>
+        <p className="text-[11px] leading-snug text-[#6B7280]">
+          {drawMode
+            ? "Drag from a selected offensive player to draw their route. Press D to go back to moving players."
+            : "Drag players to reposition them. Press D to draw routes instead."}
+        </p>
       </Section>
 
       <Section title="Simulation Speed">

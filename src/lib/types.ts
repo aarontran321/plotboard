@@ -1,6 +1,9 @@
 export type Team = "offense" | "defense";
 
-export type FormationId = "shotgun-spread" | "i-formation" | "singleback";
+export type FormationId = "spread" | "i-formation" | "singleback" | "empty";
+
+/** Defensive personnel and alignment. Orthogonal to `CoverageId`, which is behaviour. */
+export type DefenseFormationId = "4-3" | "3-4" | "nickel" | "dime" | "5-2";
 
 export type CoverageId = "man" | "cover-2" | "cover-3";
 
@@ -48,7 +51,14 @@ export interface PassTarget {
  */
 export interface PlayState {
   formation: FormationId;
+  defenseFormation: DefenseFormationId;
   coverage: CoverageId;
+  /**
+   * Line of scrimmage in world x. The offense aligns below it and attacks
+   * toward +x. Draggable, so it lives in state rather than being the `LOS_X`
+   * constant, which is now only the default.
+   */
+  losX: number;
   players: PlayerDef[];
   /** Player id -> ordered route waypoints in world yards. */
   routes: Record<string, Point[]>;

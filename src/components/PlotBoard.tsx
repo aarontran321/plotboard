@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sharePlay } from "@/app/actions";
+import { LOS_X } from "@/lib/field";
 import { buildFormation } from "@/lib/formations";
 import { flattenPath, pointAtT } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
@@ -10,7 +11,13 @@ import { loadPlayLocal, savePlayLocal } from "@/lib/localPlays";
 import { serializePlayState } from "@/lib/playSchema";
 import { buildPresetRoute } from "@/lib/routePresets";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import type { CoverageId, FormationId, PlayState, RoutePresetId } from "@/lib/types";
+import type {
+  CoverageId,
+  DefenseFormationId,
+  FormationId,
+  PlayState,
+  RoutePresetId,
+} from "@/lib/types";
 import FieldCanvas from "./FieldCanvas";
 import LeftPanel from "./LeftPanel";
 import RightPanel, { type ActionState } from "./RightPanel";
@@ -21,7 +28,7 @@ import RightPanel, { type ActionState } from "./RightPanel";
  * user has drawn anything.
  */
 export function createDefaultPlay(): PlayState {
-  const players = buildFormation("shotgun-spread");
+  const players = buildFormation("spread", "4-3", LOS_X);
   const at = (id: string) => {
     const p = players.find((x) => x.id === id)!;
     return { x: p.startX, y: p.startY };
@@ -30,7 +37,7 @@ export function createDefaultPlay(): PlayState {
   const routes = {
     WR1: buildPresetRoute("go", at("WR1")),
     WR2: buildPresetRoute("curl", at("WR2")),
-    TE: buildPresetRoute("slant", at("TE")),
+    WR3: buildPresetRoute("slant", at("WR3")),
   };
 
   // Drop the target three-quarters of the way down the go route.
@@ -38,8 +45,10 @@ export function createDefaultPlay(): PlayState {
   const spot = pointAtT(path, 0.75);
 
   return {
-    formation: "shotgun-spread",
+    formation: "spread",
+    defenseFormation: "4-3",
     coverage: "man",
+    losX: LOS_X,
     players,
     routes,
     passTarget: { x: spot.x, y: spot.y, receiverId: "WR1", t: 0.75 },
@@ -62,9 +71,11 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [missingShare, setMissingShare] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [runId, setRunId] = useState(0);
   const [resetId, setResetId] = useState(0);
+  const [transitionId, setTransitionId] = useState(0);
   const [shareState, setShareState] = useState<ActionState>({ status: "idle" });
   const [exportState, setExportState] = useState<ActionState>({ status: "idle" });
 
@@ -145,17 +156,29 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   }, [fallbackId, initialPlay, syncHistory]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const onFormation = (formation: FormationId) => {
-    // A new formation moves everyone, which would orphan existing routes.
+  /**
+   * Rebuilds the roster for a formation pair. A new formation moves everyone,
+   * which would orphan existing routes, so they are cleared along with the
+   * target that sat on one of them. `transitionId` tells the canvas to ease the
+   * players from wherever they were into the new alignment.
+   */
+  const setFormations = (formation: FormationId, defenseFormation: DefenseFormationId) => {
     edit({
       ...play,
       formation,
-      players: buildFormation(formation),
+      defenseFormation,
+      players: buildFormation(formation, defenseFormation, play.losX),
       routes: {},
       passTarget: null,
     });
     setSelectedId(null);
+    setTransitionId((v) => v + 1);
   };
+
+  const onFormation = (formation: FormationId) => setFormations(formation, play.defenseFormation);
+
+  const onDefenseFormation = (defenseFormation: DefenseFormationId) =>
+    setFormations(play.formation, defenseFormation);
 
   const onCoverage = (coverage: CoverageId) => edit({ ...play, coverage });
 
@@ -244,6 +267,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         if (isExporting) return;
         e.preventDefault();
         onReset();
+      } else if (key === "d") {
+        if (locked) return;
+        e.preventDefault();
+        setDrawMode((v) => !v);
       } else if (key === "escape") {
         setSelectedId(null);
       }
@@ -338,13 +365,17 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
       <div className="grid items-start gap-4 p-4 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
         <LeftPanel
           formation={play.formation}
+          defenseFormation={play.defenseFormation}
           coverage={play.coverage}
           speed={speed}
           isPlaying={isPlaying}
+          drawMode={drawMode}
           disabled={isExporting}
           onFormation={onFormation}
+          onDefenseFormation={onDefenseFormation}
           onCoverage={onCoverage}
           onSpeed={setSpeed}
+          onDrawMode={setDrawMode}
           onTogglePlay={onTogglePlay}
           onReset={onReset}
         />
@@ -362,9 +393,11 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               play={play}
               selectedId={selectedId}
               isPlaying={isPlaying}
+              drawMode={drawMode}
               speed={speed}
               runId={runId}
               resetId={resetId}
+              transitionId={transitionId}
               onSelect={setSelectedId}
               onPlayChange={setPlay}
               onCommit={commit}
@@ -382,10 +415,9 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           </div>
 
           <p className="text-[12px] leading-relaxed text-[#6B7280]">
-            Click a player to select. Drag an unselected player to move them; once selected,
-            dragging from the player instead draws their route — hold Shift or Alt to move a
-            selected player instead. Select the QB, then click along a receiver&apos;s route to
-            place the pass target.
+            {drawMode
+              ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
+              : "Drag players to reposition them — they are held on their own side of the neutral zone. Drag the blue line of scrimmage to move the whole play. Press D to draw routes. Select the QB, then click a receiver's route to place the pass target."}
           </p>
         </main>
 
@@ -393,6 +425,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           selected={selected}
           hasRoute={hasRoute}
           hasAnyRoutes={hasAnyRoutes}
+          drawMode={drawMode}
           canUndo={canUndo}
           canRedo={canRedo}
           disabled={locked}

@@ -1,5 +1,11 @@
-import { FIELD_LENGTH, FIELD_WIDTH } from "./field";
-import type { CoverageId, FormationId, PlayState, Point } from "./types";
+import { FIELD_LENGTH, FIELD_WIDTH, LOS_MAX_X, LOS_MIN_X, LOS_X } from "./field";
+import type {
+  CoverageId,
+  DefenseFormationId,
+  FormationId,
+  PlayState,
+  Point,
+} from "./types";
 
 /**
  * Validation for plays crossing a trust boundary.
@@ -10,9 +16,22 @@ import type { CoverageId, FormationId, PlayState, Point } from "./types";
  * crashed route.
  */
 
-const FORMATIONS: FormationId[] = ["shotgun-spread", "i-formation", "singleback"];
+const FORMATIONS: FormationId[] = ["spread", "i-formation", "singleback", "empty"];
+const DEFENSE_FORMATIONS: DefenseFormationId[] = ["4-3", "3-4", "nickel", "dime", "5-2"];
 const COVERAGES: CoverageId[] = ["man", "cover-2", "cover-3"];
 const TEAMS = ["offense", "defense"];
+
+/**
+ * Formation ids that have been renamed. Links shared before the 7v7 rework
+ * carry the old id; the roster in those payloads is stale, but the players are
+ * serialized with the play, so the board still renders what was shared.
+ */
+const LEGACY_FORMATIONS: Record<string, FormationId> = {
+  "shotgun-spread": "spread",
+};
+
+/** Defaults for fields added after plays were already being shared. */
+const DEFAULT_DEFENSE_FORMATION: DefenseFormationId = "4-3";
 
 /** Caps on size, so a hostile payload cannot wedge the renderer. */
 const MAX_PLAYERS = 24;
@@ -35,10 +54,32 @@ function parsePoint(v: unknown): Point | null {
 export function parsePlayState(input: unknown): PlayState | null {
   if (!isRecord(input)) return null;
 
-  const formation = input.formation;
+  if (typeof input.formation !== "string") return null;
+  const formation = (LEGACY_FORMATIONS[input.formation] ?? input.formation) as FormationId;
+  if (!FORMATIONS.includes(formation)) return null;
+
   const coverage = input.coverage;
-  if (typeof formation !== "string" || !FORMATIONS.includes(formation as FormationId)) return null;
   if (typeof coverage !== "string" || !COVERAGES.includes(coverage as CoverageId)) return null;
+
+  // Added after launch: absent on plays shared before defensive personnel was
+  // selectable, so it defaults rather than rejecting the whole play.
+  let defenseFormation: DefenseFormationId = DEFAULT_DEFENSE_FORMATION;
+  if (input.defenseFormation !== undefined) {
+    if (
+      typeof input.defenseFormation !== "string" ||
+      !DEFENSE_FORMATIONS.includes(input.defenseFormation as DefenseFormationId)
+    ) {
+      return null;
+    }
+    defenseFormation = input.defenseFormation as DefenseFormationId;
+  }
+
+  // Likewise for the line of scrimmage, which used to be a constant.
+  let losX = LOS_X;
+  if (input.losX !== undefined) {
+    if (!finiteInRange(input.losX, LOS_MIN_X, LOS_MAX_X)) return null;
+    losX = input.losX;
+  }
 
   if (!Array.isArray(input.players) || input.players.length === 0) return null;
   if (input.players.length > MAX_PLAYERS) return null;
@@ -86,14 +127,24 @@ export function parsePlayState(input: unknown): PlayState | null {
     passTarget = { x: point.x, y: point.y, receiverId: t.receiverId, t: t.t };
   }
 
-  return { formation: formation as FormationId, coverage: coverage as CoverageId, players, routes, passTarget };
+  return {
+    formation,
+    defenseFormation,
+    coverage: coverage as CoverageId,
+    losX,
+    players,
+    routes,
+    passTarget,
+  };
 }
 
 /** Strips the play down to exactly the fields that get persisted. */
 export function serializePlayState(play: PlayState) {
   return {
     formation: play.formation,
+    defenseFormation: play.defenseFormation,
     coverage: play.coverage,
+    losX: play.losX,
     players: play.players.map((p) => ({
       id: p.id,
       team: p.team,

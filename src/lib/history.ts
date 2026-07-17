@@ -1,14 +1,20 @@
 import type { PlayState } from "./types";
 
 /**
- * The slice of a play that undo/redo tracks: alignments, routes and the pass
- * target. Formation and coverage selections are treated as view settings and
- * deliberately excluded, since re-picking them is already a single click.
+ * The slice of a play that undo/redo tracks: alignments, routes, the pass
+ * target and the line of scrimmage. Formation and coverage selections are
+ * treated as view settings and deliberately excluded, since re-picking them is
+ * already a single click.
+ *
+ * The line of scrimmage is tracked because dragging it is a real edit that
+ * moves every player, and leaving it out would make undo restore alignments
+ * onto the wrong line.
  */
 export interface Snapshot {
   players: { id: string; startX: number; startY: number }[];
   routes: Record<string, { x: number; y: number }[]>;
   passTarget: PlayState["passTarget"];
+  losX: number;
 }
 
 export function snapshot(play: PlayState): Snapshot {
@@ -18,6 +24,7 @@ export function snapshot(play: PlayState): Snapshot {
       Object.entries(play.routes).map(([id, pts]) => [id, pts.map((p) => ({ x: p.x, y: p.y }))])
     ),
     passTarget: play.passTarget ? { ...play.passTarget } : null,
+    losX: play.losX,
   };
 }
 
@@ -34,6 +41,7 @@ export function restore(play: PlayState, snap: Snapshot): PlayState {
       Object.entries(snap.routes).map(([id, pts]) => [id, pts.map((p) => ({ ...p }))])
     ),
     passTarget: snap.passTarget ? { ...snap.passTarget } : null,
+    losX: snap.losX,
   };
 }
 

@@ -6,14 +6,33 @@
  * browser. Run with: npm run verify
  */
 
-import { CATCH_RADIUS, FIELD_LENGTH, FIELD_WIDTH, LOS_X, dist } from "../src/lib/field";
-import { buildFormation } from "../src/lib/formations";
+import {
+  CATCH_RADIUS,
+  FIELD_LENGTH,
+  FIELD_WIDTH,
+  LOS_MAX_X,
+  LOS_X,
+  NEUTRAL_ZONE_DEPTH,
+  clampToSide,
+  dist,
+  violatesScrimmage,
+} from "../src/lib/field";
+import { buildFormation, manAssignments } from "../src/lib/formations";
 import { flattenPath, nearestOnPath } from "../src/lib/geometry";
 import { History, restore, snapshot } from "../src/lib/history";
 import { parsePlayState } from "../src/lib/playSchema";
 import { buildPresetRoute } from "../src/lib/routePresets";
 import { createContext, createInitialSim, routeProgress, stepSim } from "../src/lib/simulation";
-import type { CoverageId, PlayState, SimState } from "../src/lib/types";
+import type {
+  CoverageId,
+  DefenseFormationId,
+  FormationId,
+  PlayState,
+  SimState,
+} from "../src/lib/types";
+
+const ALL_FORMATIONS: FormationId[] = ["spread", "i-formation", "singleback", "empty"];
+const ALL_DEFENSES: DefenseFormationId[] = ["4-3", "3-4", "nickel", "dime", "5-2"];
 
 let failures = 0;
 let checks = 0;
@@ -32,9 +51,9 @@ function section(name: string) {
   console.log(`\n${name}`);
 }
 
-/** Builds a shotgun play with a slant to WR1 and a target on that route. */
+/** Builds a spread play with a slant to WR1 and a target on that route. */
 function buildTestPlay(coverage: CoverageId = "man"): PlayState {
-  const players = buildFormation("shotgun-spread");
+  const players = buildFormation("spread", "4-3", LOS_X);
   const wr1 = players.find((p) => p.id === "WR1")!;
   const route = buildPresetRoute("slant", { x: wr1.startX, y: wr1.startY });
 
@@ -43,8 +62,10 @@ function buildTestPlay(coverage: CoverageId = "man"): PlayState {
   const aim = nearestOnPath(path, path.pts[Math.floor(path.pts.length * 0.75)]);
 
   return {
-    formation: "shotgun-spread",
+    formation: "spread",
+    defenseFormation: "4-3",
     coverage,
+    losX: LOS_X,
     players,
     routes: { WR1: route },
     passTarget: { x: aim.point.x, y: aim.point.y, receiverId: "WR1", t: aim.t },
@@ -104,7 +125,7 @@ section("Geometry");
 
 section("Route presets");
 {
-  const players = buildFormation("shotgun-spread");
+  const players = buildFormation("spread", "4-3", LOS_X);
   const wr1 = players.find((p) => p.id === "WR1")!; // above the midline
   const wr2 = players.find((p) => p.id === "WR2")!; // below the midline
 
@@ -132,6 +153,126 @@ section("Route presets");
     "all preset points stay in bounds",
     all.every((p) => p.x >= 0 && p.x <= FIELD_LENGTH && p.y >= 0 && p.y <= FIELD_WIDTH)
   );
+}
+
+// --- Rosters -------------------------------------------------------------
+
+section("Rosters");
+{
+  for (const f of ALL_FORMATIONS) {
+    const players = buildFormation(f, "4-3", LOS_X);
+    const off = players.filter((p) => p.team === "offense");
+    check(`${f} fields 7 on offense`, off.length === 7, `got ${off.length}`);
+    check(`${f} has exactly one quarterback`, off.filter((p) => p.id === "QB").length === 1);
+    check(`${f} has a centre`, off.some((p) => p.id === "C"));
+  }
+
+  for (const d of ALL_DEFENSES) {
+    const players = buildFormation("spread", d, LOS_X);
+    const def = players.filter((p) => p.team === "defense");
+    check(`${d} fields 7 on defense`, def.length === 7, `got ${def.length}`);
+  }
+
+  // Ids are what routes, assignments and the pass target are all keyed by.
+  for (const f of ALL_FORMATIONS) {
+    for (const d of ALL_DEFENSES) {
+      const players = buildFormation(f, d, LOS_X);
+      const ids = new Set(players.map((p) => p.id));
+      if (ids.size !== players.length) {
+        check(`${f} vs ${d} has unique player ids`, false, "duplicate id");
+      }
+    }
+  }
+  check("every formation pairing has unique player ids", true);
+
+  // Every defender must have a job: a man, a zone, or a pass rush.
+  for (const d of ALL_DEFENSES) {
+    const players = buildFormation("spread", d, LOS_X);
+    const man = manAssignments(players);
+    const covered = players.filter(
+      (p) => p.team === "defense" && (man[p.id] || p.id.startsWith("DL") || p.id === "FS")
+    );
+    const def = players.filter((p) => p.team === "defense");
+    check(
+      `${d} leaves nobody in man coverage without a job`,
+      covered.length === def.length,
+      `${covered.length}/${def.length}`
+    );
+  }
+}
+
+// --- Line of scrimmage ---------------------------------------------------
+
+section("Line of scrimmage");
+{
+  const half = NEUTRAL_ZONE_DEPTH / 2;
+
+  // No generated alignment may start inside the neutral zone or across it.
+  let allLegal = true;
+  for (const f of ALL_FORMATIONS) {
+    for (const d of ALL_DEFENSES) {
+      for (const losX of [LOS_X, 30, 90]) {
+        for (const p of buildFormation(f, d, losX)) {
+          if (violatesScrimmage(p.startX, p.team, losX)) allLegal = false;
+        }
+      }
+    }
+  }
+  check("no generated alignment violates the neutral zone", allLegal);
+
+  // The two sides must actually be separated by the full neutral zone.
+  const players = buildFormation("spread", "4-3", LOS_X);
+  const frontOff = Math.max(...players.filter((p) => p.team === "offense").map((p) => p.startX));
+  const frontDef = Math.min(...players.filter((p) => p.team === "defense").map((p) => p.startX));
+  check(
+    "offense stays behind the neutral zone",
+    frontOff <= LOS_X - half + 1e-9,
+    `front man at ${frontOff.toFixed(2)}, limit ${(LOS_X - half).toFixed(2)}`
+  );
+  check(
+    "defense stays in front of the neutral zone",
+    frontDef >= LOS_X + half - 1e-9,
+    `front man at ${frontDef.toFixed(2)}, limit ${(LOS_X + half).toFixed(2)}`
+  );
+
+  // The drag clamp is the rule the UI enforces; it must agree with the builder.
+  const pushed = clampToSide(LOS_X + 20, 25, "offense", LOS_X);
+  check("clamping holds the offense at its limit", Math.abs(pushed.x - (LOS_X - half)) < 1e-9);
+  const pushedDef = clampToSide(LOS_X - 20, 25, "defense", LOS_X);
+  check("clamping holds the defense at its limit", Math.abs(pushedDef.x - (LOS_X + half)) < 1e-9);
+  check("clamping leaves a legal position alone", clampToSide(20, 25, "offense", LOS_X).x === 20);
+  check(
+    "clamping still respects the field edges",
+    clampToSide(-50, 25, "offense", LOS_X).x === 0 &&
+      clampToSide(9999, 25, "defense", LOS_X).x === FIELD_LENGTH
+  );
+
+  // Moving the line moves the play with it.
+  const shifted = buildFormation("spread", "4-3", 70);
+  const qbAt45 = players.find((p) => p.id === "QB")!;
+  const qbAt70 = shifted.find((p) => p.id === "QB")!;
+  check(
+    "the formation follows the line of scrimmage",
+    Math.abs(qbAt70.startX - qbAt45.startX - 25) < 1e-9,
+    `${qbAt45.startX} -> ${qbAt70.startX}`
+  );
+
+  // A play run from a different line must still work end to end.
+  const deep: PlayState = { ...buildTestPlay("man"), losX: 60 };
+  const rebuilt: PlayState = {
+    ...deep,
+    players: buildFormation("spread", "4-3", 60),
+  };
+  const wr1 = rebuilt.players.find((p) => p.id === "WR1")!;
+  const route = buildPresetRoute("slant", { x: wr1.startX, y: wr1.startY });
+  const path = flattenPath(route);
+  const aim = nearestOnPath(path, path.pts[Math.floor(path.pts.length * 0.75)]);
+  const moved = runToCompletion({
+    ...rebuilt,
+    routes: { WR1: route },
+    passTarget: { x: aim.point.x, y: aim.point.y, receiverId: "WR1", t: aim.t },
+  });
+  check("a play from a moved line still resolves", moved.sim.outcome !== null, `${moved.sim.outcome}`);
 }
 
 // --- Throw physics -------------------------------------------------------
@@ -250,9 +391,11 @@ section("Defensive AI");
 
   // Zone: with no receiver threatening it, a defender sits on its landmark.
   const bare: PlayState = {
-    formation: "shotgun-spread",
+    formation: "spread",
+    defenseFormation: "4-3",
     coverage: "cover-3",
-    players: buildFormation("shotgun-spread"),
+    losX: LOS_X,
+    players: buildFormation("spread", "4-3", LOS_X),
     routes: {},
     passTarget: null,
   };
@@ -329,6 +472,16 @@ section("Undo / redo");
   history.undo(snapshot(reapplied));
   history.commit(snapshot(reapplied));
   check("a new edit clears the redo branch", !history.canRedo);
+
+  // Dragging the line of scrimmage is an edit, so undo has to restore it —
+  // otherwise alignments would come back onto the wrong line.
+  const losHistory = new History();
+  const atDefault = buildTestPlay("man");
+  losHistory.commit(snapshot(atDefault));
+  const atSeventy: PlayState = { ...atDefault, losX: 70 };
+  const back = losHistory.undo(snapshot(atSeventy));
+  check("undo captures the line of scrimmage", back?.losX === LOS_X, `got ${back?.losX}`);
+  check("undo restores the line of scrimmage", restore(atSeventy, back!).losX === LOS_X);
 }
 
 // --- Schema validation ---------------------------------------------------
@@ -341,10 +494,14 @@ section("Schema validation");
   check("round-trip preserves the route", round?.routes.WR1?.length === play.routes.WR1.length);
   check("round-trip preserves the pass target", round?.passTarget?.receiverId === "WR1");
 
+  check("round-trip preserves the line of scrimmage", round?.losX === play.losX);
+  check("round-trip preserves the defensive formation", round?.defenseFormation === "4-3");
+
   const bad: [string, unknown][] = [
     ["null", null],
     ["a string", "not a play"],
     ["an unknown formation", { ...play, formation: "wildcat" }],
+    ["an unknown defensive formation", { ...play, defenseFormation: "6-6" }],
     ["an unknown coverage", { ...play, coverage: "cover-9" }],
     ["no players", { ...play, players: [] }],
     ["an off-field player", { ...play, players: [{ ...play.players[0], startX: 9999 }] }],
@@ -352,10 +509,26 @@ section("Schema validation");
     ["a route for an unknown player", { ...play, routes: { GHOST: [{ x: 1, y: 1 }] } }],
     ["a target on an unknown receiver", { ...play, passTarget: { x: 1, y: 1, receiverId: "GHOST", t: 0.5 } }],
     ["an out-of-range target t", { ...play, passTarget: { x: 1, y: 1, receiverId: "WR1", t: 5 } }],
+    ["a line of scrimmage in the endzone", { ...play, losX: 2 }],
+    ["a line of scrimmage past the far limit", { ...play, losX: LOS_MAX_X + 5 }],
+    ["a NaN line of scrimmage", { ...play, losX: NaN }],
   ];
   for (const [label, value] of bad) {
     check(`rejects ${label}`, parsePlayState(value) === null);
   }
+
+  // Fields added after plays were already shareable must not break old links.
+  const legacy = parsePlayState({ ...play, formation: "shotgun-spread" });
+  check("accepts the pre-rename formation id", legacy !== null);
+  check("maps the legacy formation id forward", legacy?.formation === "spread");
+
+  const noExtras: Record<string, unknown> = { ...play };
+  delete noExtras.losX;
+  delete noExtras.defenseFormation;
+  const older = parsePlayState(noExtras);
+  check("accepts a play saved before the line of scrimmage moved", older !== null);
+  check("defaults a missing line of scrimmage", older?.losX === LOS_X);
+  check("defaults a missing defensive formation", older?.defenseFormation === "4-3");
 
   // A payload built to be huge must not be accepted.
   const huge = { ...play, routes: { WR1: Array.from({ length: 5000 }, () => ({ x: 1, y: 1 })) } };

@@ -14,6 +14,7 @@ interface Props {
   selected: PlayerDef | null;
   hasRoute: boolean;
   hasAnyRoutes: boolean;
+  drawMode: boolean;
   canUndo: boolean;
   canRedo: boolean;
   disabled: boolean;
@@ -47,6 +48,7 @@ export default function RightPanel({
   selected,
   hasRoute,
   hasAnyRoutes,
+  drawMode,
   canUndo,
   canRedo,
   disabled,
@@ -74,12 +76,18 @@ export default function RightPanel({
               <p className="text-[14px] font-semibold text-[#E5E7EB]">
                 {isQB ? "Quarterback Selected" : `${selected.team === "offense" ? "Offense" : "Defense"} — ${selected.label}`}
               </p>
-              <p className={`mt-1 text-[12px] ${isQB ? "italic text-[#F97316]" : "text-[#6B7280]"}`}>
-                {isQB
-                  ? "Click anywhere along a receiver's route (the dotted/colored lines) on the field to set the pass target!"
-                  : selected.team === "offense"
-                    ? "Drag on the field to draw a route."
-                    : "Drag to adjust this defender's alignment."}
+              <p
+                className={`mt-1 text-[12px] ${
+                  isQB && !drawMode ? "italic text-[#F97316]" : "text-[#6B7280]"
+                }`}
+              >
+                {selected.team === "offense"
+                  ? drawMode
+                    ? "Draw Route Mode is on — drag from this player to draw their route."
+                    : isQB
+                      ? "Click anywhere along a receiver's route (the dotted/colored lines) on the field to set the pass target!"
+                      : "Drag to move this player. Press D to draw their route instead."
+                  : "Drag to adjust this defender's alignment."}
               </p>
             </>
           ) : (
