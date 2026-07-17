@@ -13,7 +13,6 @@ interface Props {
   defenseFormation: DefenseFormationId;
   coverage: CoverageId;
   speed: number;
-  isPlaying: boolean;
   drawMode: boolean;
   disabled: boolean;
   onFormation: (f: FormationId) => void;
@@ -21,8 +20,6 @@ interface Props {
   onCoverage: (c: CoverageId) => void;
   onSpeed: (s: number) => void;
   onDrawMode: (on: boolean) => void;
-  onTogglePlay: () => void;
-  onReset: () => void;
 }
 
 const FORMATIONS = Object.keys(FORMATION_LABELS) as FormationId[];
@@ -34,7 +31,6 @@ export default function LeftPanel({
   defenseFormation,
   coverage,
   speed,
-  isPlaying,
   drawMode,
   disabled,
   onFormation,
@@ -42,8 +38,6 @@ export default function LeftPanel({
   onCoverage,
   onSpeed,
   onDrawMode,
-  onTogglePlay,
-  onReset,
 }: Props) {
   return (
     <Panel>
@@ -122,17 +116,6 @@ export default function LeftPanel({
             className="h-1 flex-1 cursor-pointer appearance-none bg-[#374151] accent-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <Badge>{speed.toFixed(1)}x</Badge>
-        </div>
-      </Section>
-
-      <Section title="Playback">
-        <div className="flex flex-col gap-1.5">
-          <Button variant="primary" disabled={disabled} onClick={onTogglePlay}>
-            {isPlaying ? "Pause Play" : "Simulate Play"}
-          </Button>
-          <Button disabled={disabled} onClick={onReset}>
-            Reset Field
-          </Button>
         </div>
       </Section>
     </Panel>

@@ -17,6 +17,8 @@ interface Props {
   hasRoute: boolean;
   hasAnyRoutes: boolean;
   drawMode: boolean;
+  isPlacingPassTarget: boolean;
+  onTogglePlacingPassTarget: () => void;
   canUndo: boolean;
   canRedo: boolean;
   disabled: boolean;
@@ -51,11 +53,23 @@ function Status({ state }: { state: ActionState }) {
   return <p className={`text-[12px] leading-snug ${color}`}>{state.message}</p>;
 }
 
+/** A small flat crosshair icon for the Pass Target Tool button. */
+function CrosshairIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <circle cx="8" cy="8" r="5" />
+      <path d="M8 0.5v3.2M8 12.3v3.2M0.5 8h3.2M12.3 8h3.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function RightPanel({
   selected,
   hasRoute,
   hasAnyRoutes,
   drawMode,
+  isPlacingPassTarget,
+  onTogglePlacingPassTarget,
   canUndo,
   canRedo,
   disabled,
@@ -97,10 +111,22 @@ export default function RightPanel({
                   ? drawMode
                     ? "Draw Route Mode is on — drag from this player to draw their route."
                     : isQB
-                      ? "Click anywhere along a receiver's route (the dotted/colored lines) on the field to set the pass target!"
+                      ? "Use the Pass Target Tool below, or click anywhere along a receiver's route to set the pass target directly."
                       : "Drag to move this player. Press D to draw their route instead."
                   : "Drag to adjust this defender's alignment."}
               </p>
+              {isQB && !drawMode && (
+                <Button
+                  active={isPlacingPassTarget}
+                  disabled={disabled}
+                  onClick={onTogglePlacingPassTarget}
+                  aria-pressed={isPlacingPassTarget}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2"
+                >
+                  <CrosshairIcon />
+                  {isPlacingPassTarget ? "Placing Target… (Esc to cancel)" : "Set Pass Target"}
+                </Button>
+              )}
             </>
           ) : (
             <>

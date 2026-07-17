@@ -103,6 +103,10 @@ export const COLORS = {
   routeOffense: "#E2E8F0",
   /** Boundary-violation feedback. Flat fill only — this project forbids glows. */
   warning: "#EF4444",
+  /** The passing lane guide, once a target is placed — kept distinct from the
+   *  gold selection ring and the orange target so the three never blend. */
+  passingLane: "#38BDF8",
+  deflected: "#FB923C",
 } as const;
 
 /** Maps world yards to screen pixels for a canvas of a given CSS width. */

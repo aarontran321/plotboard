@@ -8,6 +8,7 @@
 
 import {
   CATCH_RADIUS,
+  FIELD_CENTER_Y,
   FIELD_LENGTH,
   FIELD_WIDTH,
   LOS_MAX_X,
@@ -28,7 +29,13 @@ import {
 } from "../src/lib/playName";
 import { parsePlayState } from "../src/lib/playSchema";
 import { buildPresetRoute } from "../src/lib/routePresets";
-import { createContext, createInitialSim, routeProgress, stepSim } from "../src/lib/simulation";
+import {
+  createContext,
+  createInitialSim,
+  routeProgress,
+  simulateTo,
+  stepSim,
+} from "../src/lib/simulation";
 import type {
   CoverageId,
   DefenseFormationId,
@@ -345,6 +352,102 @@ section("Outcomes");
     sim.outcome === expected,
     `nearest=${nearest!.id} (${nearest!.team}) at ${nearest!.d.toFixed(2)}yd -> expected ${expected}, got ${sim.outcome}`
   );
+}
+
+// --- Pass Target Tool: free throws and deflection ------------------------
+
+section("Pass Target Tool");
+{
+  // A free-throw target has no receiver to key release off of, so it must
+  // still throw and resolve on a fixed timer rather than never releasing.
+  const free: PlayState = {
+    ...buildTestPlay("man"),
+    passTarget: { x: LOS_X + 15, y: FIELD_CENTER_Y, receiverId: null, t: 0 },
+  };
+  const freeRun = runToCompletion(free);
+  check(
+    "a free-throw target still releases and resolves",
+    freeRun.sim.ball !== null && freeRun.sim.outcome !== null,
+    `${freeRun.sim.outcome}`
+  );
+  // By the time a free throw's fixed release timer elapses, a rushing lineman
+  // may well have closed to bat-down range — a legitimate deflection, not a
+  // bug — so an undisturbed throw only has to land on target *if* it wasn't
+  // deflected first.
+  check(
+    "an undeflected free-throw ball lands on the free target",
+    freeRun.sim.outcome === "Pass Deflected!" ||
+      dist(freeRun.sim.ball!.x, freeRun.sim.ball!.y, free.passTarget!.x, free.passTarget!.y) < 0.01,
+    `${freeRun.sim.outcome}`
+  );
+
+  // A target snapped onto a receiver with no drawn route (a hitch) behaves
+  // the same way: it must not wait forever on route progress that never comes.
+  const players = buildFormation("spread", "4-3", LOS_X);
+  const wr2 = players.find((p) => p.id === "WR2")!;
+  const hitch: PlayState = {
+    name: "",
+    formation: "spread",
+    defenseFormation: "4-3",
+    coverage: "man",
+    losX: LOS_X,
+    players,
+    routes: {},
+    passTarget: { x: wr2.startX, y: wr2.startY, receiverId: "WR2", t: 0 },
+  };
+  const hitchRun = runToCompletion(hitch);
+  check(
+    "a hitch to a routeless receiver still releases and resolves",
+    hitchRun.sim.ball !== null && hitchRun.sim.outcome !== null,
+    `${hitchRun.sim.outcome}`
+  );
+
+  // A defender standing right on top of the release point must bat the pass
+  // down rather than let it fly to a target far downfield — distinct from an
+  // interception, which only happens at the natural landing spot.
+  const qb = players.find((p) => p.id === "QB")!;
+  const rushOnQb = players.map((p) => (p.id === "DL1" ? { ...p, startX: qb.startX, startY: qb.startY } : p));
+  const contested: PlayState = {
+    name: "",
+    formation: "spread",
+    defenseFormation: "4-3",
+    coverage: "man",
+    losX: LOS_X,
+    players: rushOnQb,
+    routes: {},
+    passTarget: { x: LOS_X + 30, y: FIELD_CENTER_Y, receiverId: null, t: 0 },
+  };
+  const contestedRun = runToCompletion(contested);
+  check(
+    "a defender on the release point deflects the pass",
+    contestedRun.sim.outcome === "Pass Deflected!",
+    `${contestedRun.sim.outcome}`
+  );
+  check(
+    "a deflected pass lands well short of its intended target",
+    dist(contestedRun.sim.ball!.x, contestedRun.sim.ball!.y, LOS_X + 30, FIELD_CENTER_Y) > 5
+  );
+
+  // `simulateTo` (the scrubber's engine) must agree exactly with stepping
+  // there incrementally — that agreement is the whole premise of scrubbing.
+  const scrubPlay = buildTestPlay("man");
+  const ctx = createContext(scrubPlay);
+  const stepped = createInitialSim(ctx);
+  const dt = 1 / 120;
+  let guard = 0;
+  while (stepped.t < 2 && !stepped.finished && guard++ < 5000) stepSim(stepped, ctx, dt);
+  const scrubbed = simulateTo(ctx, stepped.t, dt);
+  check(
+    "simulateTo agrees with incremental stepping",
+    Math.abs(scrubbed.players["WR1"].x - stepped.players["WR1"].x) < 1e-6 &&
+      Math.abs(scrubbed.players["WR1"].y - stepped.players["WR1"].y) < 1e-6,
+    `stepped=(${stepped.players["WR1"].x.toFixed(4)},${stepped.players["WR1"].y.toFixed(4)}) ` +
+      `scrubbed=(${scrubbed.players["WR1"].x.toFixed(4)},${scrubbed.players["WR1"].y.toFixed(4)})`
+  );
+
+  // A route-schema round-trip must accept a free-throw target's null receiver.
+  const roundTripped = parsePlayState(JSON.parse(JSON.stringify(free)));
+  check("schema accepts a free-throw target (null receiverId)", roundTripped?.passTarget?.receiverId === null);
 }
 
 // --- Movement integrity --------------------------------------------------

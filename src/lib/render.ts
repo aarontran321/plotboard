@@ -203,20 +203,29 @@ function traceRoute(ctx: Ctx, v: View, points: Point[]) {
   }
 }
 
-export function drawRoute(ctx: Ctx, v: View, points: Point[], color: string, dashed = true) {
+export function drawRoute(
+  ctx: Ctx,
+  v: View,
+  points: Point[],
+  color: string,
+  dashed = true,
+  highlighted = false
+) {
   if (points.length < 2) return;
 
+  // A route the Pass Target Tool is hovering gets a heavier, brighter stroke —
+  // weight and colour carry the emphasis, not a blur.
   ctx.save();
   if (dashed) ctx.setLineDash([6, 5]);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = color;
+  ctx.lineWidth = highlighted ? 3.5 : 2;
+  ctx.strokeStyle = highlighted ? COLORS.passingLane : color;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   traceRoute(ctx, v, points);
   ctx.stroke();
   ctx.restore();
 
-  drawRouteCap(ctx, v, points, color);
+  drawRouteCap(ctx, v, points, highlighted ? COLORS.passingLane : color);
 }
 
 /** A flat arrowhead marking which way the route runs. */
@@ -336,6 +345,14 @@ export interface PlayerStyle {
   warn?: number;
   /** Shown on a selected player in draw mode: the ring you pull a route from. */
   routeHandle?: boolean;
+  /**
+   * The Pass Target Tool is hovering this receiver, within snapping range.
+   * Reads as a crisp outer ring plus a slight scale-up — weight and size, not
+   * a glow, so it stays inside the project's flat-design rule.
+   */
+  snapHighlight?: boolean;
+  /** A transient "shimmer" called out from the token's context menu. */
+  shimmer?: number;
 }
 
 export function drawPlayer(
@@ -346,12 +363,42 @@ export function drawPlayer(
   team: "offense" | "defense",
   style: PlayerStyle = {}
 ) {
-  const { selected = false, isQB = false, warn = 0, routeHandle = false } = style;
+  const {
+    selected = false,
+    isQB = false,
+    warn = 0,
+    routeHandle = false,
+    snapHighlight = false,
+    shimmer = 0,
+  } = style;
   const cx = pos.x * v.scale;
   const cy = pos.y * v.scale;
-  const r = PLAYER_RADIUS * v.scale;
+  // A snap-eligible receiver scales up slightly under the Pass Target Tool —
+  // real size change, not a shadow, so it stays inside the flat-design rule.
+  const r = PLAYER_RADIUS * v.scale * (snapHighlight ? 1.14 : 1);
 
   ctx.save();
+
+  if (shimmer > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.55 + 0.45 * Math.sin(shimmer * Math.PI * 2);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 7, 0, Math.PI * 2);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = COLORS.passingLane;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (snapHighlight) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = COLORS.passingLane;
+    ctx.stroke();
+    ctx.restore();
+  }
 
   if (warn > 0) {
     ctx.save();
@@ -488,8 +535,48 @@ export function drawBanner(ctx: Ctx, v: View, text: string) {
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 
   ctx.fillStyle =
-    text === "Intercepted!" ? "#F87171" : text === "Pass Completed!" ? "#4ADE80" : "#E5E7EB";
+    text === "Intercepted!"
+      ? "#F87171"
+      : text === "Pass Completed!"
+        ? "#4ADE80"
+        : text === "Pass Deflected!"
+          ? COLORS.deflected
+          : "#E5E7EB";
   ctx.fillText(text, v.width / 2, y + h / 2);
+  ctx.restore();
+}
+
+/**
+ * The passing lane: a bright dashed vector from the quarterback to a placed
+ * pass target, so its geometry can be inspected before the play is run. Kept
+ * visually distinct from the route palette (bright sky blue vs. off-white
+ * routes and the gold selection ring) so it always reads as "where the ball
+ * is going to go", not another route.
+ */
+export function drawPassingLane(ctx: Ctx, v: View, from: Point, to: Point, dashOffset: number) {
+  ctx.save();
+  ctx.setLineDash([9, 6]);
+  ctx.lineDashOffset = -dashOffset;
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = COLORS.passingLane;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(from.x * v.scale, from.y * v.scale);
+  ctx.lineTo(to.x * v.scale, to.y * v.scale);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * A flat scrim over the field while the Pass Target Tool is active, so the
+ * placement crosshair and the eligible receivers pop against a quieted
+ * background. Solid opacity, no blur — consistent with the rest of the
+ * project's flat-design rule.
+ */
+export function drawPlacementDim(ctx: Ctx, v: View) {
+  ctx.save();
+  ctx.fillStyle = "rgba(2,6,23,0.38)";
+  ctx.fillRect(0, 0, v.width, v.height);
   ctx.restore();
 }
 
@@ -533,21 +620,39 @@ export interface QBGuideOptions {
   hoverTarget: Point | null;
 }
 
+/** State of the dedicated Pass Target Tool, while it is active. */
+export interface PassPlacementOptions {
+  /** Receiver id within snapping range of the cursor, if any. */
+  snapReceiverId: string | null;
+}
+
 export interface SceneOptions {
   play: PlayState;
   /** Live positions during playback; when null, players sit at their alignment. */
   sim: SimState | null;
   selectedId: string | null;
+  /** Additional ids dragged together as a group; drawn with the same ring as `selectedId`. */
+  groupSelectedIds?: string[];
   /** In-progress route being drawn, rendered before it is committed. */
   draftRoute: Point[] | null;
   /** Present only while the QB is selected and the play is idle. */
   qbGuide?: QBGuideOptions | null;
+  /** Present only while the dedicated Pass Target Tool is armed. */
+  passPlacement?: PassPlacementOptions | null;
+  /**
+   * Marching-dash phase for the passing lane (QB to target). Shared with the
+   * QB guide's animation loop — both are among this project's few deliberate
+   * idle-animation exceptions — and left at 0 (a static dash) outside of it.
+   */
+  passLaneDashOffset?: number;
   /** True while the line of scrimmage is grabbed or hovered. */
   losActive?: boolean;
   /** True when a route drag is armed, which shows the route handles. */
   drawMode?: boolean;
   /** Player id -> 0..1 boundary-warning intensity. */
   warnings?: Record<string, number>;
+  /** Player id -> shimmer phase (0..1, looping), from the context menu action. */
+  shimmers?: Record<string, number>;
   /**
    * Purely visual formation transition: player id -> the position to draw them
    * at instead of their alignment. The authored state jumps immediately; only
@@ -568,11 +673,15 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     play,
     sim,
     selectedId,
+    groupSelectedIds,
     draftRoute,
     qbGuide,
+    passPlacement,
+    passLaneDashOffset = 0,
     losActive = false,
     drawMode = false,
     warnings,
+    shimmers,
     transition,
     background,
   } = opts;
@@ -587,13 +696,26 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     drawZones(ctx, v, zoneAssignments(play.coverage, play.players, play.losX));
   }
 
+  // The Pass Target Tool quiets the field so the crosshair and eligible
+  // receivers read clearly; everything drawn after this remains full-bright.
+  if (passPlacement) drawPlacementDim(ctx, v);
+
   /** Where a player is drawn: live sim position, else transition, else alignment. */
   const posOf = (p: PlayState["players"][number]): Point | null =>
     sim ? (sim.players[p.id] ?? null) : (transition?.[p.id] ?? { x: p.startX, y: p.startY });
 
   for (const [id, pts] of Object.entries(play.routes)) {
     if (!pts || pts.length < 2) continue;
-    drawRoute(ctx, v, pts, id === selectedId ? COLORS.selected : COLORS.routeOffense);
+    const isSnapTarget = passPlacement?.snapReceiverId === id;
+    const isGroupSelected = id === selectedId || (groupSelectedIds?.includes(id) ?? false);
+    drawRoute(
+      ctx,
+      v,
+      pts,
+      isGroupSelected ? COLORS.selected : COLORS.routeOffense,
+      true,
+      isSnapTarget
+    );
   }
 
   if (draftRoute && draftRoute.length >= 2) {
@@ -615,17 +737,27 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     if (qbGuide.hoverTarget) drawGhostTarget(ctx, v, qbGuide.hoverTarget);
   }
 
-  if (play.passTarget) drawPassTarget(ctx, v, play.passTarget);
+  if (play.passTarget) {
+    const qb = play.players.find((p) => p.id === "QB");
+    if (qb) {
+      const qbPos = posOf(qb) ?? { x: qb.startX, y: qb.startY };
+      drawPassingLane(ctx, v, qbPos, play.passTarget, passLaneDashOffset);
+    }
+    drawPassTarget(ctx, v, play.passTarget);
+  }
 
   for (const p of play.players) {
     const pos = posOf(p);
     if (!pos) continue;
+    const shimmer = shimmers?.[p.id];
     drawPlayer(ctx, v, pos, p.label, p.team, {
-      selected: p.id === selectedId,
+      selected: p.id === selectedId || (groupSelectedIds?.includes(p.id) ?? false),
       isQB: p.id === "QB",
       warn: warnings?.[p.id] ?? 0,
       // The handle only means anything on a selected player you can route.
       routeHandle: drawMode && !sim && p.id === selectedId && p.team === "offense",
+      snapHighlight: passPlacement?.snapReceiverId === p.id,
+      shimmer: shimmer ?? 0,
     });
   }
 

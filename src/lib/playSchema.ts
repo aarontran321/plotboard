@@ -132,7 +132,10 @@ export function parsePlayState(input: unknown): PlayState | null {
     if (!isRecord(t)) return null;
     const point = parsePoint(t);
     if (!point) return null;
-    if (typeof t.receiverId !== "string" || !playerIds.has(t.receiverId)) return null;
+    // A free-throw target (open space, no receiver) carries `receiverId: null`.
+    if (t.receiverId !== null && (typeof t.receiverId !== "string" || !playerIds.has(t.receiverId))) {
+      return null;
+    }
     if (!finiteInRange(t.t, 0, 1)) return null;
     passTarget = { x: point.x, y: point.y, receiverId: t.receiverId, t: t.t };
   }

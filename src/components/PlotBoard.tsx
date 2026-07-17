@@ -23,6 +23,7 @@ import type {
   CoverageId,
   DefenseFormationId,
   FormationId,
+  PassTarget,
   PlayState,
   RoutePresetId,
 } from "@/lib/types";
@@ -85,8 +86,8 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
+  const [isPlacingPassTarget, setIsPlacingPassTarget] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [runId, setRunId] = useState(0);
   const [resetId, setResetId] = useState(0);
   const [transitionId, setTransitionId] = useState(0);
   const [shareState, setShareState] = useState<ActionState>({ status: "idle" });
@@ -217,6 +218,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     setPlay(loaded);
     setSelectedId(null);
     setIsPlaying(false);
+    setIsPlacingPassTarget(false);
     setActiveSavedId(id);
     // A different play is a different history: the old stack's snapshots
     // describe a board that is no longer on screen.
@@ -252,6 +254,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
       passTarget: null,
     });
     setSelectedId(null);
+    setIsPlacingPassTarget(false);
     setTransitionId((v) => v + 1);
   };
 
@@ -301,13 +304,19 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
       return;
     }
     setSelectedId(null);
-    setRunId((v) => v + 1);
     setIsPlaying(true);
   };
 
   const onReset = () => {
     setIsPlaying(false);
     setResetId((v) => v + 1);
+  };
+
+  /** A pass target was placed via the dedicated Pass Target Tool; one placement
+   *  completes the action, so the tool turns itself back off. */
+  const onPlaceTarget = (target: PassTarget) => {
+    edit({ ...play, passTarget: target });
+    setIsPlacingPassTarget(false);
   };
 
   /*
@@ -353,6 +362,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         setDrawMode((v) => !v);
       } else if (key === "escape") {
         setSelectedId(null);
+        setIsPlacingPassTarget(false);
       }
     };
 
@@ -474,16 +484,16 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           defenseFormation={play.defenseFormation}
           coverage={play.coverage}
           speed={speed}
-          isPlaying={isPlaying}
           drawMode={drawMode}
           disabled={isExporting}
           onFormation={onFormation}
           onDefenseFormation={onDefenseFormation}
           onCoverage={onCoverage}
           onSpeed={setSpeed}
-          onDrawMode={setDrawMode}
-          onTogglePlay={onTogglePlay}
-          onReset={onReset}
+          onDrawMode={(on) => {
+            setDrawMode(on);
+            if (on) setIsPlacingPassTarget(false);
+          }}
         />
 
         <main className="flex flex-col gap-3">
@@ -508,13 +518,16 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               isPlaying={isPlaying}
               drawMode={drawMode}
               speed={speed}
-              runId={runId}
               resetId={resetId}
               transitionId={transitionId}
+              isPlacingPassTarget={isPlacingPassTarget}
               onSelect={setSelectedId}
               onPlayChange={setPlay}
               onCommit={commit}
               onFinished={() => setIsPlaying(false)}
+              onPlaceTarget={onPlaceTarget}
+              onTogglePlay={onTogglePlay}
+              onReset={onReset}
             />
 
             {isExporting && (
@@ -528,9 +541,11 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           </div>
 
           <p className="text-[12px] leading-relaxed text-[#6B7280]">
-            {drawMode
-              ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
-              : "Drag players to reposition them — they are held on their own side of the neutral zone. Drag the blue line of scrimmage to move the whole play. Press D to draw routes. Select the QB, then click a receiver's route to place the pass target."}
+            {isPlacingPassTarget
+              ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc cancels."
+              : drawMode
+                ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
+                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click to drag several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
           </p>
         </main>
 
@@ -539,6 +554,8 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           hasRoute={hasRoute}
           hasAnyRoutes={hasAnyRoutes}
           drawMode={drawMode}
+          isPlacingPassTarget={isPlacingPassTarget}
+          onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
           canUndo={canUndo}
           canRedo={canRedo}
           disabled={locked}

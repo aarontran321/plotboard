@@ -34,14 +34,16 @@ export interface ZoneAssignment {
 }
 
 /**
- * A pass target sits on a receiver's route. `t` is normalized progress along
- * that route, which lets the simulation time the throw so the ball and the
- * receiver arrive together.
+ * A pass target either sits on a receiver's route (`receiverId` set — `t` is
+ * normalized progress along that route, which lets the simulation time the
+ * throw so the ball and the receiver arrive together) or is a free-throw spot
+ * in open space (`receiverId: null` — anticipating a vacancy rather than a
+ * specific route). `t` is meaningless for a free throw and left at 0.
  */
 export interface PassTarget {
   x: number;
   y: number;
-  receiverId: string;
+  receiverId: string | null;
   t: number;
 }
 
@@ -88,7 +90,7 @@ export interface BallState {
   duration: number;
 }
 
-export type Outcome = "Pass Completed!" | "Intercepted!" | "Incomplete Pass";
+export type Outcome = "Pass Completed!" | "Intercepted!" | "Incomplete Pass" | "Pass Deflected!";
 
 /** Per-player mutable state during a simulation run. */
 export interface PlayerSim {

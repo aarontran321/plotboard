@@ -136,15 +136,32 @@ Things that will bite you if you don't know them:
 - **The animation loop only runs while playing.** An idle board holds no
   animation frame. Static repaints happen in an effect after render. If you add
   something that animates while idle, you are probably doing it wrong. There are
-  exactly three deliberate exceptions, all narrow and all self-terminating: the
-  QB throw guides (only while the QB is selected), the formation transition, and
-  the boundary-warning flash. The latter two share one `pump()` loop that stops
-  the moment both are idle.
+  a small number of deliberate exceptions, all narrow and all self-terminating:
+  the QB throw guides / passing lane (while the QB is selected *or* the Pass
+  Target Tool is armed), the formation transition, the boundary-warning flash,
+  and a context-menu "shimmer" highlight. The latter three share one `pump()`
+  loop that stops the moment all of them are idle.
 - **Interaction is strictly mode-switched.** `pointerdown` decides *once*,
-  from `drawMode`, whether a gesture is a `drag` or a `route`, and records that
-  on `interactionRef`. `pointermove` only services the gesture already chosen —
-  there is no path from `drag` to `route`. That separation is the whole fix for
-  the move-vs-draw bug; don't reintroduce a heuristic.
+  from `drawMode`, whether a gesture is a `drag`, `group-drag` or a `route`, and
+  records that on `interactionRef`. `pointermove` only services the gesture
+  already chosen — there is no path from `drag` to `route`. That separation is
+  the whole fix for the move-vs-draw bug; don't reintroduce a heuristic. The
+  Pass Target Tool (`isPlacingPassTarget`) intercepts a click even earlier, at
+  the very top of `pointerdown`, before any gesture is decided.
+- **`group-drag` recomputes from a snapshot on every move, not incrementally.**
+  It captures each group member's position and route *once*, at drag start,
+  then every `pointermove` applies the *total* offset from the drag's anchor
+  to that snapshot. Applying a per-frame incremental delta instead (the way
+  the single-player `drag` case does, which is safe there because it sets an
+  absolute cursor position rather than an offset) would compound, since `play`
+  already reflects the previous move's result.
+- **The playback deck's scrubbing (`simulateTo`) replays from `t=0` every
+  time**, it does not hold a second live simulation. That is only viable
+  because `stepSim` is a pure function of the previous state and `dt` — see
+  determinism, verified below — and a play never runs longer than
+  `MAX_PLAY_TIME`. Scrubbing/stepping are disabled while actually playing
+  (pause first) to avoid the seek and the live RAF loop fighting over
+  `simRef` in the same frame.
 - **No glows. Still.** The boundary warning is a flat red *ring*, not a glow,
   because the brief that asked for it did not know about this rule.
 - **A play's `name` may be empty, and the default is never stored.** The default
@@ -182,25 +199,61 @@ Things that will bite you if you don't know them:
   a drag past the boundary clamps to the edge and flashes a red ring on the node.
   `clampToSide` is shared by the drag handler and the formation builder, so a
   dragged player can never reach a spot a generated alignment wouldn't.
-- **Drag-and-drop** all 14 nodes; a node's route drags with it.
+- **Drag-and-drop** all 14 nodes; a node's route drags with it. **Shift-click**
+  builds a drag group out of several tokens (added to the primary selection),
+  so an entire line or unit can be repositioned together; a plain click on a
+  token outside the group clears it and resumes single-player dragging.
+- **Right-click context menu** on any token: delete its route, cycle a cosmetic
+  position/role label, set it as the primary pass-target receiver, or trigger a
+  transient "shimmer" highlight. A full-viewport backdrop closes it on any
+  outside click.
 - **Hand-drawn routes** (quadratic-smoothed) and **presets** (Slant/Go/Out/Curl),
   mirrored so "inside" means toward the hashes regardless of which side you're on.
   Drawing is behind a **Draw Route Mode** toggle (button, or `D`) — by default a
   drag on a player moves them, full stop.
-- **QB pass targeting**: with the QB selected (and not in draw mode), click a
-  receiver's route to snap a target onto it. The QB node is drawn with a gold
-  double ring and star badge, and when selected it shows marching guide lines to
-  each active route plus a ghost target under the cursor.
-- **Throw physics**: release at 30% route progress; flight time from horizontal
-  distance ÷ throw speed; launch velocity solved so `z(duration) = 0` exactly.
-  Nearest player to the landing spot wins it → Completed / Intercepted / Incomplete.
+- **QB pass targeting, two ways.** The original path still works: with the QB
+  selected (and not in draw mode), click a receiver's route to snap a target
+  onto it. The QB node is drawn with a gold double ring and star badge, and
+  when selected it shows marching guide lines to each active route plus a
+  ghost target under the cursor.
+- **The Pass Target Tool** (`isPlacingPassTarget`, a "Set Pass Target" button
+  under Active Element when the QB is selected) is the dedicated version of
+  the same idea: it arms a crosshair cursor and dims the field, then a click
+  either snaps to whichever route/receiver is within range (highlighted with
+  a brighter stroke and a slight scale-up as you hover — weight and size, not
+  a glow, so the flat-design rule holds) or drops a free target in open space
+  with `receiverId: null` — a throw anticipating a vacancy rather than a
+  route. Either way, one placement turns the tool back off. A bright
+  sky-blue dashed "passing lane" is drawn from the QB to whatever target is
+  set, live, so its geometry can be inspected before running the play.
+- **Throw physics**: release at 30% route progress (or, for a free target or a
+  receiver with no drawn route — a hitch — a fixed timer once the drop has had
+  time to settle, since there is no route progress to key off). Flight time
+  from horizontal distance ÷ throw speed; launch velocity solved so
+  `z(duration) = 0` exactly. Nearest player to the landing spot wins it →
+  Completed / Intercepted / Incomplete — **unless a defender bats it down
+  first**: any defender within bat-down range of the ball during the first
+  `BAT_WINDOW` seconds of flight, while it is still below `BAT_MAX_Z`,
+  produces a distinct "Pass Deflected!" outcome instead, ending the flight on
+  the spot rather than at the intended target.
 - **Defensive AI**: man coverage chases a **250ms-delayed** copy of the
   assignment's position (this is why a sharp break creates separation); zone sits
   on a landmark and breaks on the nearest intruder inside its radius; everyone
   within 14yd breaks on the ball once it's up.
+- **A media-style playback deck** (`PlaybackDeck.tsx`, under the field) replaced
+  the old single "Simulate Play" button: Play/Pause (true pause-and-resume —
+  pressing Play only creates a fresh simulation if none is loaded, so a pause
+  no longer means "restart from the top"), step forward/back one `FRAME_STEP`
+  (1/15s), and a timeline scrubber. Scrubbing calls `simulateTo`, which replays
+  the play from t=0 at a fixed timestep rather than holding a second live sim —
+  cheap, since a play is capped at `MAX_PLAY_TIME` seconds, and exactly as
+  deterministic as the live run (`verify` checks the two agree bit-for-bit).
+  The deck reports the play's estimated duration from the *authored* state, so
+  the scrubber has a sensible range even before Play is first pressed.
 - **Undo/redo** over snapshots (alignments, routes, pass target, *and* the line
   of scrimmage). **Shortcuts**: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, Space =
-  play/pause, R = reset, D = toggle Draw Route Mode, Esc = deselect.
+  play/pause, R = reset, D = toggle Draw Route Mode, Esc = deselect (and cancels
+  the Pass Target Tool, if armed).
 - **Naming and a saved play library**. A name input sits at the top of the field
   with a Save Play button (Enter saves). Saved plays go to `localStorage` and are
   listed in "My Saved Plays" in the right panel, newest first, each loadable by
@@ -258,7 +311,7 @@ size. Leaving it on roughly quadruples the file (measured: 2.0 MB → 517 KB).
 
 ## 6. How this was verified
 
-**`npm run verify` — 114 headless assertions.** This closes the "no automated
+**`npm run verify` — 121 headless assertions.** This closes the "no automated
 tests" gap the previous handoff called its top infrastructure priority (§8).
 Covers: path length/nearest-point math, preset mirroring, release timing, arc
 monotonicity, ball landing on target, outcome agreeing with the nearest player,
@@ -280,6 +333,16 @@ Added with play naming: the default/trim/cap rules, that the cap agrees with the
 schema (so a name you can type is a name that parses back), filename slugging
 including the "all punctuation" case, and that an unnamed play stays valid.
 
+Added with the Pass Target Tool: a free-throw target (`receiverId: null`) and a
+hitch onto a receiver with no drawn route both still release and resolve on
+their fixed timer rather than waiting forever on route progress that never
+comes; a defender standing on the release point deflects the pass
+("Pass Deflected!", distinct from an interception at landing); the schema
+accepts a free-throw target's null receiver on round-trip; and `simulateTo`
+(the scrubber's engine) agrees, to floating-point tolerance, with stepping
+there incrementally — the load-bearing assumption behind letting the scrubber
+replay from scratch instead of holding a second live simulation.
+
 Browser-side, verified by sampling canvas pixels and driving synthetic
 `PointerEvent`s: exact palette values (grass reads `20,83,45` = `#14532D`), player
 placement at computed coordinates, formation switching, route presets, pass-target
@@ -294,6 +357,16 @@ tool's tab reports `document.hidden === true` and never composites, so
 was therefore never observed visually — it was verified by pixel sampling plus
 the headless harness, and playback/export were driven by shimming rAF *before*
 gifshot loads (see §5). If you have a real browser, just look at it.
+
+The same caveat applies to everything added for the Pass Target Tool / playback
+deck / group-drag / context-menu pass: `tsc --noEmit`, `eslint`, `npm run
+build`, and `npm run verify` (121/121) are all green, and a `curl` against a
+running dev server confirms the page renders with the new markup present
+(`aria-label="Play"` from the deck, etc.) with no server-side exceptions — but
+none of the new interaction (snap highlighting, the crosshair cursor and field
+dim, scrubbing, shift-click grouping, the right-click menu) has been exercised
+by an actual pointer in an actual browser. If you have one, that is the
+highest-value next act, same as it was for the original animation.
 
 ## 7. Bugs found and fixed
 
@@ -343,6 +416,24 @@ gifshot loads (see §5). If you have a real browser, just look at it.
 - **Pass rushers are crude.** Linemen beeline for the QB's *alignment* at
   constant speed; there is no blocking, no pocket, and no sack. They exist so
   that defensive linemen aren't inert, not because the rush is modelled.
+- **"Change Position/Role" from the context menu is cosmetic.** It rewrites
+  `label` only, cycling through a small pool per team; it does not touch `id`,
+  so routes, man/zone assignments and the pass target — all keyed by `id` —
+  are unaffected. A relabeled "CB1" is still covering whoever `manAssignments`
+  gave CB1.
+- **Group-drag selection lives only in `FieldCanvas`, not lifted to
+  `PlotBoard`.** The right panel's "Active Element" section still describes
+  just the primary `selectedId`; it has no way to say "4 players selected".
+  Extending that would mean threading a `groupSelectedIds` prop up through
+  `PlotBoard` and `RightPanel`, which felt like real scope creep for what the
+  brief asked for (the ability to drag several tokens together).
+- **The free-throw release timer (`FREE_THROW_RELEASE_T = 1.1s`) and the
+  batted-pass window (`BAT_RADIUS`/`BAT_MAX_Z`/`BAT_WINDOW`) are heuristic
+  constants**, tuned only against `buildTestPlay`'s default spread/4-3
+  matchup. They are not re-derived per formation, so a formation with a much
+  shorter or longer drop could make a free throw release oddly early/late, or
+  make batted passes systematically more/less likely than intended. Worth
+  revisiting if free throws start feeling wrong for a particular formation.
 - **Deviations from the single-file app**, none of which are principled — just
   unported:
   - Steering is constant-speed (`moveToward`) rather than the old

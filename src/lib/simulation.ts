@@ -19,6 +19,25 @@ const BALL_SPEED = 19;
 const THROW_TRIGGER_T = 0.3;
 
 /**
+ * A free-throw target (open space, no receiver) has no route to trigger off
+ * of, so the release is timed instead: long enough for the quarterback's drop
+ * to settle, short enough to still read as anticipating a throw rather than
+ * holding the ball.
+ */
+const FREE_THROW_RELEASE_T = 1.1;
+
+/**
+ * A pass can be batted down in the very first instant of its flight, while it
+ * is still low and close to the rushers at the line of scrimmage — distinct
+ * from an interception, which is resolved at the natural landing spot. Once
+ * the ball has climbed past `BAT_MAX_Z` or flown longer than `BAT_WINDOW`,
+ * only a catch at the landing spot can end the play.
+ */
+const BAT_RADIUS = 2.0;
+const BAT_MAX_Z = 0.6;
+const BAT_WINDOW = 0.15;
+
+/**
  * Defenders in man coverage react to where the receiver *was*, not where they
  * are. This is what makes a sharp break create separation.
  */
@@ -247,13 +266,38 @@ function resolveOutcome(sim: SimState, ctx: SimContext): Outcome {
   return best.team === "defense" ? "Intercepted!" : "Pass Completed!";
 }
 
+/**
+ * True once any defender has closed to bat-down range of the ball while it is
+ * still low and freshly released. Checked every frame during the early flight
+ * window rather than only at landing, since a batted pass never reaches its
+ * intended target at all.
+ */
+function checkBatted(sim: SimState, ctx: SimContext): boolean {
+  const ball = sim.ball!;
+  if (ball.elapsed > BAT_WINDOW || ball.z > BAT_MAX_Z) return false;
+
+  for (const p of ctx.play.players) {
+    if (p.team !== "defense") continue;
+    const ps = sim.players[p.id];
+    if (dist(ps.x, ps.y, ball.x, ball.y) <= BAT_RADIUS) return true;
+  }
+  return false;
+}
+
 function stepBall(sim: SimState, ctx: SimContext, dt: number) {
   const target = ctx.play.passTarget;
 
   if (!sim.ball) {
     if (!target || !sim.players["QB"]) return;
-    // Hold the ball until the intended receiver has run enough of the route.
-    if (routeProgress(sim, ctx, target.receiverId) >= THROW_TRIGGER_T) releaseBall(sim, ctx);
+    // Hold the ball until the intended receiver has run enough of the route —
+    // or, for a free throw with no receiver to key off (or a target snapped
+    // onto a receiver who was never given a route — a hitch, thrown right to
+    // where they're standing), until the drop has had time to settle.
+    const hasRoute = target.receiverId !== null && Boolean(ctx.paths[target.receiverId]);
+    const ready = hasRoute
+      ? routeProgress(sim, ctx, target.receiverId!) >= THROW_TRIGGER_T
+      : sim.t >= FREE_THROW_RELEASE_T;
+    if (ready) releaseBall(sim, ctx);
     return;
   }
 
@@ -270,6 +314,14 @@ function stepBall(sim: SimState, ctx: SimContext, dt: number) {
   // `duration`: z(t) = v0*t - g*t^2/2, with z(duration) = 0.
   const v0 = 0.5 * GRAVITY * ball.duration;
   ball.z = Math.max(0, v0 * ball.elapsed - 0.5 * GRAVITY * ball.elapsed * ball.elapsed);
+
+  if (checkBatted(sim, ctx)) {
+    ball.phase = "landed";
+    ball.z = 0;
+    sim.outcome = "Pass Deflected!";
+    sim.landedAt = sim.t;
+    return;
+  }
 
   if (f >= 1) {
     ball.phase = "landed";
@@ -319,4 +371,20 @@ export function estimateDuration(ctx: SimContext): number {
   for (const path of Object.values(ctx.paths)) longest = Math.max(longest, path.length);
   const runTime = longest / 8 + 2.5;
   return Math.min(MAX_PLAY_TIME, Math.max(3.5, runTime));
+}
+
+/**
+ * Replays a play from scratch up to `targetT`, at a fixed timestep. This is
+ * what makes the timeline scrubber possible without holding a second live
+ * simulation: `stepSim` is a pure function of the previous state and `dt`, so
+ * scrubbing to any point just means re-running from t=0 to there. Cheap in
+ * practice — a play never runs longer than `MAX_PLAY_TIME` seconds.
+ */
+export function simulateTo(ctx: SimContext, targetT: number, step = 1 / 120): SimState {
+  const sim = createInitialSim(ctx);
+  const clamped = Math.max(0, targetT);
+  while (sim.t < clamped && !sim.finished) {
+    stepSim(sim, ctx, Math.min(step, clamped - sim.t));
+  }
+  return sim;
 }
