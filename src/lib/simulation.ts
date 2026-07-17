@@ -365,12 +365,28 @@ export function stepSim(sim: SimState, ctx: SimContext, dt: number) {
   if (settled || sim.t > MAX_PLAY_TIME) sim.finished = true;
 }
 
-/** Total wall-clock seconds a play needs, used to size the GIF recording. */
-export function estimateDuration(ctx: SimContext): number {
-  let longest = 0;
-  for (const path of Object.values(ctx.paths)) longest = Math.max(longest, path.length);
-  const runTime = longest / 8 + 2.5;
-  return Math.min(MAX_PLAY_TIME, Math.max(3.5, runTime));
+/**
+ * The exact wall-clock duration a play takes, found by actually running it
+ * once to completion rather than estimating from route length.
+ *
+ * This used to be a heuristic (`longest route length / 8 + 2.5`, clamped to
+ * `[3.5, MAX_PLAY_TIME]`) used to size the GIF recording and the playback
+ * deck's scrubber range. The heuristic and the real simulation are two
+ * different computations of "how long is this play", and they can disagree —
+ * which is exactly the bug this was rewritten to fix: the live playhead
+ * correctly freezes at the play's real end (say, 6.0s), while the heuristic
+ * "total duration" shown next to it could say something else entirely (say,
+ * 11.56s) that the play was never actually going to reach. Running the real
+ * sim once and using *that* number everywhere means the two can no longer
+ * disagree, by construction, rather than by coincidence.
+ */
+export function computeExactDuration(ctx: SimContext, step = 1 / 120): number {
+  const sim = createInitialSim(ctx);
+  let guard = 0;
+  while (!sim.finished && guard++ < 5000) {
+    stepSim(sim, ctx, step);
+  }
+  return sim.t;
 }
 
 /**
@@ -391,11 +407,11 @@ export function simulateTo(ctx: SimContext, targetT: number, step = 1 / 120): Si
 
 /**
  * Runs a play once, start to finish, recording the timestamp of each
- * milestone the keyframe timeline marks: when the ball leaves the QB's hand,
- * and however the play ends (a clean whistle, a deflection, or an
- * interception). Computed once per play the same way `estimateDuration` is —
- * a full deterministic replay — rather than threaded through the live sim,
- * since the timeline needs every event up front to place its icons.
+ * milestone the play chat narrates: when the ball leaves the QB's hand, and
+ * however the play ends (a clean whistle, a deflection, or an interception).
+ * Computed once per play the same way `computeExactDuration` is — a full
+ * deterministic replay — rather than threaded through the live sim, since
+ * the chat needs every event up front to render its feed.
  *
  * There is no sack/tackle in this engine (pass rushers have no pocket to
  * collapse and no sack resolution — see `HANDOFF.md`), so a caller wanting a

@@ -7,13 +7,6 @@
  */
 
 import {
-  coverageStatus,
-  primaryReceiverId,
-  routeDepthAndSeparation,
-  timeToThrow,
-  timeToThrowTier,
-} from "../src/lib/analytics";
-import {
   CATCH_RADIUS,
   FIELD_CENTER_Y,
   FIELD_LENGTH,
@@ -37,6 +30,7 @@ import {
 import { parsePlayState } from "../src/lib/playSchema";
 import { buildPresetRoute } from "../src/lib/routePresets";
 import {
+  computeExactDuration,
   computePlayEvents,
   createContext,
   createInitialSim,
@@ -467,60 +461,17 @@ section("Pass Target Tool");
   check("schema accepts a free-throw target (null receiverId)", roundTripped?.passTarget?.receiverId === null);
 }
 
-// --- Analytics & timeline events ------------------------------------------
+// --- Play chat events -----------------------------------------------------
 
-section("Analytics & timeline events");
+section("Play chat events");
 {
   const play = buildTestPlay("man");
   const ctx = createContext(play);
+  const { sim } = runToCompletion(play);
 
-  // Pre-snap: no sim loaded yet.
-  check("time to throw is null before a run exists", timeToThrow(null) === null);
-  check("coverage status is PRE-SNAP before a run exists", coverageStatus(play, null) === "PRE-SNAP");
-  check("primary receiver falls back to the placed target", primaryReceiverId(play) === "WR1");
-
-  const noTarget: PlayState = { ...play, passTarget: null };
-  check(
-    "primary receiver falls back to the longest route with no target placed",
-    primaryReceiverId(noTarget) === "WR1"
-  );
-
-  const untargeted: PlayState = { ...play, routes: {}, passTarget: null };
-  check("primary receiver is null with no routes and no target", primaryReceiverId(untargeted) === null);
-
-  // Pre-snap route tracking reads the alignment, not a live sim.
-  const preSnap = routeDepthAndSeparation(play, null);
-  check("pre-snap tracking still reports a receiver", preSnap?.receiverId === "WR1");
-  check("pre-snap separation is finite (someone is on the field)", Number.isFinite(preSnap?.separation));
-
-  // Run to completion and sample time-to-throw against the same release
-  // frame the throw-physics section already pins down.
-  const { sim, trace } = runToCompletion(play);
-  const releaseFrame = trace.find((s) => s.phase === "flight");
-  const ttt = timeToThrow(sim);
-  check("time to throw is reported once the sim has run", ttt !== null && ttt.released);
-  check(
-    "time to throw matches the frame the ball actually left",
-    ttt !== null && releaseFrame !== undefined && Math.abs(ttt.seconds - (releaseFrame.t - 1 / 60)) < 0.05,
-    `ttt=${ttt?.seconds.toFixed(3)} release~${((releaseFrame?.t ?? 0) - 1 / 60).toFixed(3)}`
-  );
-  check("time to throw tiers are ordered", timeToThrowTier(1) === "safe" && timeToThrowTier(2) === "warning" && timeToThrowTier(3) === "danger");
-
-  const live = routeDepthAndSeparation(play, sim);
-  check("live tracking still reports the primary receiver", live?.receiverId === "WR1");
-  check(
-    "the receiver has moved downfield of where they lined up",
-    live !== null && live.depth > preSnap!.depth
-  );
-
-  const liveCoverage = coverageStatus(play, sim);
-  check(
-    "coverage status resolves to a real status once the sim has run",
-    liveCoverage === "MAN-LOCK" || liveCoverage === "MISMATCH DETECTED"
-  );
-
-  // Timeline events: a release always precedes the play ending, and the kind
-  // agrees with the outcome the sim actually resolved to.
+  // A release always precedes the play ending, and the kind agrees with the
+  // outcome the sim actually resolved to. This is the event feed the Play
+  // Chat panel renders, so its ordering and labelling have to be right.
   const events = computePlayEvents(ctx);
   check("computePlayEvents finds a release", events.some((e) => e.kind === "release"));
   const endEvent = events.find((e) => e.kind !== "release");
@@ -536,6 +487,26 @@ section("Analytics & timeline events");
     endEvent?.kind === expectedKind,
     `outcome=${sim.outcome} kind=${endEvent?.kind}`
   );
+}
+
+// --- Exact duration ---------------------------------------------------
+
+section("Exact duration");
+{
+  const play = buildTestPlay("man");
+  const ctx = createContext(play);
+  const { sim } = runToCompletion(play);
+
+  // The playback deck's "total" must be the real end of the play, not an
+  // independent estimate that can disagree with where the playhead actually
+  // freezes — that mismatch was the bug this replaced `estimateDuration` to fix.
+  const exact = computeExactDuration(ctx);
+  check(
+    "computeExactDuration matches the sim's own finishing time",
+    Math.abs(exact - sim.t) < 0.05,
+    `exact=${exact.toFixed(3)} sim.t=${sim.t.toFixed(3)}`
+  );
+  check("computeExactDuration never exceeds MAX_PLAY_TIME", exact <= 12 + 1e-9);
 }
 
 // --- Movement integrity --------------------------------------------------

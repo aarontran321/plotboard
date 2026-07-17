@@ -28,11 +28,13 @@ import type {
   RoutePresetId,
   SimState,
 } from "@/lib/types";
+import CoachingGrid from "./CoachingGrid";
 import FieldCanvas, { type FieldCanvasHandle } from "./FieldCanvas";
 import LeftPanel from "./LeftPanel";
 import NamePlayDialog from "./NamePlayDialog";
-import PlayDashboard from "./PlayDashboard";
+import PlayChat from "./PlayChat";
 import PlayNameBar from "./PlayNameBar";
+import { Panel, Section } from "./ui";
 import RightPanel, { type ActionState } from "./RightPanel";
 
 /**
@@ -548,36 +550,49 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             </div>
           )}
 
-          <div className="relative rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-            <FieldCanvas
-              ref={fieldCanvasRef}
-              play={play}
-              selectedId={selectedId}
-              isPlaying={isPlaying}
-              drawMode={drawMode}
-              speed={speed}
-              resetId={resetId}
-              transitionId={transitionId}
-              isPlacingPassTarget={isPlacingPassTarget}
-              theme={theme}
-              onSelect={setSelectedId}
-              onPlayChange={setPlay}
-              onCommit={commit}
-              onFinished={() => setIsPlaying(false)}
-              onPlaceTarget={onPlaceTarget}
-              onTogglePlay={onTogglePlay}
-              onReset={onReset}
-              onPlaybackUpdate={setPlayback}
-            />
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+            <div className="relative min-w-0 flex-1 rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+              <FieldCanvas
+                ref={fieldCanvasRef}
+                play={play}
+                selectedId={selectedId}
+                isPlaying={isPlaying}
+                drawMode={drawMode}
+                speed={speed}
+                resetId={resetId}
+                transitionId={transitionId}
+                isPlacingPassTarget={isPlacingPassTarget}
+                theme={theme}
+                onSelect={setSelectedId}
+                onPlayChange={setPlay}
+                onCommit={commit}
+                onFinished={() => setIsPlaying(false)}
+                onPlaceTarget={onPlaceTarget}
+                onTogglePlay={onTogglePlay}
+                onReset={onReset}
+                onPlaybackUpdate={setPlayback}
+              />
 
-            {isExporting && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-[#0a0e17]/85 backdrop-blur-sm">
-                <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#374151] border-t-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.5)]" />
-                <p className="text-[12px] text-[#9CA3AF]">
-                  {exportState.status === "busy" ? exportState.message : "Rendering…"}
-                </p>
-              </div>
-            )}
+              {isExporting && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-[#0a0e17]/85 backdrop-blur-sm">
+                  <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#374151] border-t-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.5)]" />
+                  <p className="text-[12px] text-[#9CA3AF]">
+                    {exportState.status === "busy" ? exportState.message : "Rendering…"}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Play Chat sits alongside the canvas, not below it — a fixed
+                sidebar on desktop, stacked full-width below lg. */}
+            <div className="w-full shrink-0 rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-3 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl lg:w-72">
+              <PlayChat
+                play={play}
+                playbackT={playback.t}
+                disabled={locked}
+                onScrub={(t) => fieldCanvasRef.current?.scrub(t)}
+              />
+            </div>
           </div>
 
           <p className="text-[12px] leading-relaxed text-[#7C8AA5]">
@@ -588,19 +603,16 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click to drag several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
           </p>
 
-          <PlayDashboard
-            play={play}
-            playbackT={playback.t}
-            playbackDuration={playback.duration}
-            sim={playback.sim}
-            isPlaying={isPlaying}
-            disabled={locked}
-            onTogglePlay={onTogglePlay}
-            onScrub={(t) => fieldCanvasRef.current?.scrub(t)}
-            onStep={(delta) => fieldCanvasRef.current?.step(delta)}
-            onAssignmentChange={onAssignmentChange}
-            onCallNotesChange={onCallNotesChange}
-          />
+          <Panel>
+            <Section title="Coaching Assignments &amp; Notes">
+              <CoachingGrid
+                play={play}
+                disabled={locked}
+                onAssignmentChange={onAssignmentChange}
+                onCallNotesChange={onCallNotesChange}
+              />
+            </Section>
+          </Panel>
         </main>
 
         <RightPanel

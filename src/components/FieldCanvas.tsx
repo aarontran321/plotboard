@@ -20,9 +20,9 @@ import { flattenPath, nearestOnPath, pointAtT } from "@/lib/geometry";
 import { snapshot, type Snapshot } from "@/lib/history";
 import { drawField, drawScene } from "@/lib/render";
 import {
+  computeExactDuration,
   createContext,
   createInitialSim,
-  estimateDuration,
   simulateTo,
   stepSim,
   type SimContext,
@@ -61,10 +61,9 @@ interface Props {
   onReset: () => void;
   /**
    * Fires whenever the playhead moves (live playback, a scrub, a step, or a
-   * reset) and whenever the authored play changes the estimated duration.
-   * This is how the play dashboard below the field (the keyframe timeline,
-   * live analytics, and so on) stays synchronized to the same playhead the
-   * `PlaybackDeck` above it drives — both read from this one callback rather
+   * reset) and whenever the authored play changes its exact duration. This
+   * is how the play dashboard below the field stays synchronized to the same
+   * playhead the `PlaybackDeck` above it drives — both read from this one callback rather
    * than owning a second notion of "where we are in the play".
    */
   onPlaybackUpdate?: (update: { t: number; duration: number; sim: SimState | null }) => void;
@@ -200,7 +199,13 @@ function FieldCanvas(
     // before Play is ever pressed. Reported immediately (rather than waiting
     // for the next scrub/step) so the dashboard's timeline never shows a
     // stale duration for an edit that hasn't been played since.
-    const duration = estimateDuration(createContext(play));
+    //
+    // This is the *exact* duration (a full deterministic replay), not a
+    // length-based estimate — using two different formulas for "how long is
+    // this play" was exactly what let the live playhead correctly freeze at
+    // the play's real end while the "total" shown next to it said something
+    // else that was never going to be reached.
+    const duration = computeExactDuration(createContext(play));
     playbackDurationRef.current = duration;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see note above
     setPlaybackDuration(duration);
@@ -450,7 +455,13 @@ function FieldCanvas(
 
         if (active.sim.finished && !notifiedRef.current) {
           notifiedRef.current = true;
-          reportPlayback(active.sim.t, active.sim);
+          // Snap the reported time to the play's exact duration on finish. The
+          // live loop steps by a variable, frame-timing-dependent dt, so the
+          // moment `finished` flips its `sim.t` lands a hair short of (or past)
+          // the fixed-step duration the deck shows as the total. Reporting the
+          // canonical duration itself makes the readout settle to an exact
+          // "X / X" instead of freezing a few hundredths early.
+          reportPlayback(playbackDurationRef.current, active.sim);
           latest.current.onFinished();
         }
       }
@@ -537,7 +548,10 @@ function FieldCanvas(
   const onScrub = useCallback(
     (t: number) => {
       const entry = ensureSim();
-      const duration = estimateDuration(entry.ctx);
+      // Reuses the same exact duration the deck displays (kept current by the
+      // `[play]` effect above), rather than a second computation that could
+      // let the scrub range disagree with what the deck says the total is.
+      const duration = playbackDurationRef.current;
       const sim = simulateTo(entry.ctx, Math.min(Math.max(0, t), duration));
       simRef.current = { ctx: entry.ctx, sim };
       notifiedRef.current = sim.finished;

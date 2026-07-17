@@ -1,6 +1,6 @@
 import { makeView } from "./field";
 import { drawField, drawScene } from "./render";
-import { createContext, createInitialSim, estimateDuration, stepSim } from "./simulation";
+import { computeExactDuration, createContext, createInitialSim, stepSim } from "./simulation";
 import type { PlayState } from "./types";
 
 /*
@@ -55,7 +55,9 @@ export async function recordPlayGif(
   const sim = createInitialSim(simCtx);
 
   const dt = 1 / FPS;
-  const frameCount = Math.min(MAX_FRAMES, Math.ceil(estimateDuration(simCtx) * FPS));
+  // The exact duration, not a length-based estimate — an underestimate here
+  // would cut the recording off before the play actually finished.
+  const frameCount = Math.min(MAX_FRAMES, Math.ceil(computeExactDuration(simCtx) * FPS));
   const images: string[] = [];
 
   for (let i = 0; i < frameCount; i++) {

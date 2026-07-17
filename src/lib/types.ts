@@ -135,10 +135,11 @@ export interface SimState {
 }
 
 /**
- * A milestone on the keyframe timeline. `kind` drives which icon a caller
- * draws; there is no sack/tackle mechanic in this simulation (see
- * `computePlayEvents` in `simulation.ts`), so "interception" stands in for
- * the defensive-stop icon rather than inventing a mechanic that doesn't run.
+ * A milestone in the play's event feed, rendered as a message in the Play
+ * Chat panel. `kind` drives the accent/label a caller draws; there is no
+ * sack/tackle mechanic in this simulation (see `computePlayEvents` in
+ * `simulation.ts`), so "interception" stands in for the defensive-stop
+ * outcome rather than inventing a mechanic that doesn't run.
  */
 export type PlayEventKind = "release" | "deflected" | "dead" | "interception";
 
