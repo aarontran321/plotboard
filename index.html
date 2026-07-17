@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plotboard — Football Playbook Designer &amp; Simulator</title>
+<meta name="description" content="Design American football plays, simulate defensive AI and throw physics, share via link, export animated clips." />
+
+<!-- Tailwind (CDN build) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Supabase JS v2 — cloud persistence for shared plays -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!--
+  GIF encoding is implemented inline (see "GIF89a encoder" below) rather than pulled
+  from a CDN. gifshot / gifshot-plus were evaluated first: their existing-images path
+  never invokes its callback here, which hangs the export with no way to recover. The
+  inline encoder has no dependency, no worker, and no network fetch.
+-->
+
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          ink:    '#0B0F19', // page background
+          panel:  '#111827', // panel background
+          slate2: '#0F172A', // inset / well background
+          turf:   '#14532D', // field green
+        },
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+      },
+    },
+  };
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  html, body { background: #0B0F19; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #0B0F19; }
+  ::-webkit-scrollbar-thumb { background: #1F2937; border-radius: 9999px; border: 2px solid #0B0F19; }
+  ::-webkit-scrollbar-thumb:hover { background: #374151; }
+
+  /* Section label used across the two side rails */
+  .rail-label {
+    font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #64748B;
+  }
+  /* Generic control button */
+  .btn {
+    display:flex; align-items:center; justify-content:center; gap:.5rem;
+    border-radius:.6rem; border:1px solid #1F2937; background:#0F172A;
+    color:#CBD5E1; font-size:12px; font-weight:600; padding:.55rem .7rem;
+    transition: all .15s ease; cursor:pointer; user-select:none;
+  }
+  .btn:hover { background:#172033; border-color:#334155; color:#F1F5F9; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn[data-active="true"] {
+    background: linear-gradient(180deg,#1D4ED8,#1E40AF);
+    border-color:#3B82F6; color:#EFF6FF; box-shadow: 0 0 0 1px rgba(59,130,246,.35), 0 6px 20px -6px rgba(59,130,246,.7);
+  }
+  .btn-primary {
+    background: linear-gradient(180deg,#2563EB,#1D4ED8); border-color:#3B82F6; color:#fff;
+    box-shadow: 0 8px 24px -8px rgba(37,99,235,.9);
+  }
+  .btn-primary:hover { background: linear-gradient(180deg,#3B82F6,#2563EB); border-color:#60A5FA; color:#fff; }
+  .btn-emerald {
+    background: linear-gradient(180deg,#059669,#047857); border-color:#10B981; color:#ECFDF5;
+    box-shadow: 0 8px 24px -8px rgba(16,185,129,.8);
+  }
+  .btn-emerald:hover { background: linear-gradient(180deg,#10B981,#059669); color:#fff; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+
+  .field-input {
+    width:100%; border-radius:.5rem; border:1px solid #1F2937; background:#0B0F19;
+    color:#E2E8F0; font-size:12px; padding:.45rem .6rem; outline:none;
+  }
+  .field-input:focus { border-color:#3B82F6; box-shadow:0 0 0 3px rgba(59,130,246,.18); }
+  .field-input::placeholder { color:#475569; }
+
+  /* Range slider */
+  input[type=range] { -webkit-appearance:none; appearance:none; height:6px; border-radius:9999px; background:#1E293B; outline:none; }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; width:16px; height:16px; border-radius:9999px;
+    background:#3B82F6; border:2px solid #93C5FD; cursor:pointer;
+    box-shadow:0 0 10px rgba(59,130,246,.9);
+  }
+  input[type=range]::-moz-range-thumb {
+    width:16px; height:16px; border-radius:9999px; background:#3B82F6; border:2px solid #93C5FD; cursor:pointer;
+  }
+
+  #stage { touch-action: none; cursor: crosshair; }
+
+  @keyframes toastIn { from { opacity:0; transform: translate(-50%, 14px) scale(.96);} to { opacity:1; transform: translate(-50%,0) scale(1);} }
+  .toast-in { animation: toastIn .22s cubic-bezier(.2,.9,.3,1.2) both; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { animation: spin .8s linear infinite; }
+</style>
+</head>
+
+<body class="bg-ink text-slate-200 font-sans antialiased min-h-screen">
+
+<!-- ══════════════════════════ TOP BAR ══════════════════════════ -->
+<header class="sticky top-0 z-30 border-b border-slate-800/80 bg-ink/85 backdrop-blur">
+  <div class="mx-auto flex max-w-[1800px] items-center justify-between px-4 py-3">
+    <div class="flex items-center gap-3">
+      <div class="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 shadow-[0_8px_24px_-8px_rgba(37,99,235,.9)]">
+        <svg viewBox="0 0 24 24" class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M3 21c6-1 12-7 13-13-6 1-12 7-13 13Z"/><path d="M9 15l6-6"/><path d="M11 13l1.5 1.5M13 11l1.5 1.5"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-[15px] font-extrabold leading-none tracking-tight text-white">Plotboard</h1>
+        <p class="mt-1 text-[11px] leading-none text-slate-500">Playbook Designer &amp; Play Simulator</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="cloudBadge" class="rounded-md border border-slate-700 bg-slate2 px-2 py-1 text-[10px] font-semibold text-slate-400">Local storage</span>
+      <span class="hidden rounded-md border border-slate-700 bg-slate2 px-2 py-1 text-[10px] font-semibold text-slate-400 sm:inline">60 FPS canvas</span>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════ 3-COLUMN LAYOUT ══════════════════════════ -->
+<main class="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 p-4 xl:grid-cols-[268px_minmax(0,1fr)_300px]">
+
+  <!-- ─────────── LEFT: CONTROL PANEL ─────────── -->
+  <aside class="flex flex-col gap-4">
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Offensive Formation</p>
+      <div class="mt-2 grid gap-2">
+        <button class="btn" data-formation="shotgun">Shotgun Spread</button>
+        <button class="btn" data-formation="iform">I-Formation</button>
+        <button class="btn" data-formation="singleback">Singleback</button>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Defensive Coverage</p>
+      <div class="mt-2 grid gap-2">
+        <button class="btn" data-coverage="man">Man-to-Man</button>
+        <button class="btn" data-coverage="cover2">Zone (Cover 2)</button>
+        <button class="btn" data-coverage="cover3">Zone (Cover 3)</button>
+      </div>
+      <p id="coverageHint" class="mt-2 text-[11px] leading-snug text-slate-500">Defenders shadow their assigned receiver with a reaction delay.</p>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <div class="flex items-center justify-between">
+        <p class="rail-label">Simulation Speed</p>
+        <span id="speedBadge" class="rounded-md border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-[11px] font-bold text-blue-300">1.0x</span>
+      </div>
+      <input id="speedSlider" type="range" min="0.5" max="1.5" step="0.5" value="1" class="mt-3 w-full" />
+      <div class="mt-1 flex justify-between text-[10px] font-semibold text-slate-600">
+        <span>0.5x</span><span>1.0x</span><span>1.5x</span>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Playback</p>
+      <div class="mt-2 grid gap-2">
+        <button id="btnPlay" class="btn btn-primary">
+          <svg id="playIcon" viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor"><path d="M8 5.14v13.72L19 12 8 5.14Z"/></svg>
+          <span id="playLabel">Simulate Play</span>
+        </button>
+        <button id="btnReset" class="btn">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>
+          </svg>
+          Reset Field
+        </button>
+        <button id="btnClearRoutes" class="btn">Clear Routes</button>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">How to use</p>
+      <ul class="mt-2 space-y-1.5 text-[11px] leading-snug text-slate-500">
+        <li><span class="text-slate-300">Drag</span> any node to set pre-snap alignment.</li>
+        <li><span class="text-slate-300">Click</span> an offensive node, then drag on open turf to draw its route.</li>
+        <li><span class="text-slate-300">Select QB</span> and click a point on a route to set the throw target.</li>
+      </ul>
+    </section>
+  </aside>
+
+  <!-- ─────────── CENTER: CANVAS STAGE ─────────── -->
+  <section class="rounded-xl border border-slate-800 bg-panel p-3">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <span id="statusDot" class="h-2 w-2 rounded-full bg-slate-600"></span>
+        <span id="statusText" class="text-[12px] font-semibold text-slate-400">Ready — design your play</span>
+      </div>
+      <div class="flex items-center gap-3 text-[11px] font-semibold text-slate-500">
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,.9)]"></span>Offense</span>
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,.9)]"></span>Defense</span>
+        <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,.9)]"></span>Target</span>
+      </div>
+    </div>
+
+    <div id="stageWrap" class="relative overflow-hidden rounded-lg border border-slate-800 bg-slate2">
+      <canvas id="stage" class="block w-full"></canvas>
+
+      <!-- Export / render overlay -->
+      <div id="overlay" class="absolute inset-0 z-20 hidden place-items-center bg-ink/80 backdrop-blur-sm">
+        <div class="flex flex-col items-center gap-3">
+          <svg class="spinner h-9 w-9 text-blue-400" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity=".18" stroke-width="3"/>
+            <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <p id="overlayText" class="text-[13px] font-semibold text-slate-300">Recording play…</p>
+          <p id="overlaySub" class="text-[11px] text-slate-500">This runs the simulation once at 1.0x speed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── RIGHT: CUSTOMIZATION & EXPORT ─────────── -->
+  <aside class="flex flex-col gap-4">
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Active Element</p>
+      <div id="inspector" class="mt-2 rounded-lg border border-slate-800 bg-slate2 px-3 py-3">
+        <p id="inspectorName" class="text-[15px] font-extrabold text-slate-500">None Selected</p>
+        <p id="inspectorMeta" class="mt-1 text-[11px] text-slate-600">Click a player node on the field.</p>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Route Presets</p>
+      <div class="mt-2 grid grid-cols-2 gap-2">
+        <button class="btn" data-route="slant">Slant</button>
+        <button class="btn" data-route="go">Go Route</button>
+        <button class="btn" data-route="out">Out</button>
+        <button class="btn" data-route="curl">Curl</button>
+      </div>
+      <p class="mt-2 text-[11px] leading-snug text-slate-500">Applies to the selected offensive player. Or hand-draw on the field.</p>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Save &amp; Share</p>
+      <input id="playTitle" class="field-input mt-2" placeholder="Play title (e.g. Trips Right — Smash)" />
+      <button id="btnShare" class="btn btn-emerald mt-2 w-full">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <path d="M8.6 13.5 15.4 17.5M15.4 6.5 8.6 10.5"/>
+        </svg>
+        Share Play
+      </button>
+      <div id="shareResult" class="mt-2 hidden">
+        <div class="flex gap-1.5">
+          <input id="shareLink" readonly class="field-input font-mono text-[10px]" />
+          <button id="btnCopy" class="btn shrink-0 px-2.5">Copy</button>
+        </div>
+      </div>
+
+      <details class="mt-3 rounded-lg border border-slate-800 bg-slate2 p-2.5">
+        <summary class="cursor-pointer text-[11px] font-bold text-slate-400 hover:text-slate-200">Supabase connection</summary>
+        <p class="mt-2 text-[10px] leading-snug text-slate-500">
+          Stored in <span class="font-mono text-slate-400">localStorage</span> only. Without credentials, plays save locally to this browser.
+        </p>
+        <input id="sbUrl"  class="field-input mt-2 font-mono text-[10px]" placeholder="https://xxxx.supabase.co" />
+        <input id="sbKey"  class="field-input mt-1.5 font-mono text-[10px]" placeholder="anon public key" type="password" />
+        <div class="mt-2 flex gap-1.5">
+          <button id="btnConnect" class="btn flex-1">Connect</button>
+          <button id="btnDisconnect" class="btn flex-1">Clear</button>
+        </div>
+        <p id="sbStatus" class="mt-2 text-[10px] font-semibold text-slate-500">Not connected — using local fallback.</p>
+      </details>
+    </section>
+
+    <section class="rounded-xl border border-slate-800 bg-panel p-3">
+      <p class="rail-label">Export Play</p>
+      <select id="exportFormat" class="field-input mt-2">
+        <option value="gif">Animated GIF</option>
+        <option value="webm">Video clip (WebM)</option>
+      </select>
+      <button id="btnExport" class="btn mt-2 w-full">
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>
+        </svg>
+        Record &amp; Download
+      </button>
+      <p class="mt-2 text-[11px] leading-snug text-slate-500">Replays the whole play at 1.0x while capturing every frame, then downloads the clip.</p>
+    </section>
+  </aside>
+</main>
+
+<!-- Toast host -->
+<div id="toastHost" class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   PLOTBOARD
+   A single-file football play designer + simulator.
+
+   Coordinate system
+   -----------------
+   Everything in the model is stored in FIELD YARDS, never pixels:
+     x: 0 → 120  (0-10 = left endzone, 110-120 = right endzone; offense drives +x)
+     y: 0 → 53.3 (sideline to sideline)
+   The renderer converts yards → device pixels at draw time, so the model is
+   resolution-independent and serialises cleanly for sharing.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────── Field constants ─────────────────────────── */
+const FIELD = {
+  LENGTH: 120,          // total yards including both endzones
+  WIDTH: 53.3,          // yards sideline to sideline
+  ENDZONE: 10,          // yards per endzone
+  LOS: 60,              // line of scrimmage (midfield)
+  MID_Y: 53.3 / 2,      // vertical centre of the field
+  HASH_INSET: 23.58,    // NFL hash marks, yards from each sideline
+};
+
+/* Movement / physics tuning (yards & seconds) */
+const PHYS = {
+  WR_SPEED: 8.2,        // receiver top speed, yd/s
+  QB_DROP_SPEED: 4.0,   // QB drop-back speed, yd/s
+  DEF_SPEED: 7.8,       // defender top speed, yd/s
+  DEF_ACCEL: 22,        // defender acceleration, yd/s²
+  REACTION: 0.28,       // man-coverage tracking delay, seconds
+  THROW_SPEED: 21,      // ball horizontal velocity, yd/s
+  GRAVITY: 32,          // downforce used for the z-axis arc, yd/s²
+  RELEASE_AT: 0.30,     // fraction of the target's route that triggers the throw
+  CATCH_RADIUS: 2.0,    // yards — receiver wins the ball inside this
+  PICK_RADIUS: 1.6,     // yards — defender picks it off inside this
+  PLAY_TIMEOUT: 9.0,    // seconds — hard stop for a play with no throw
+};
+
+/* ─────────────────────────── Formations ───────────────────────────
+   Positions are absolute field yards. LOS sits at x = 60.               */
+const FORMATIONS = {
+  shotgun: {
+    label: 'Shotgun Spread',
+    offense: {
+      QB:  { x: 54.5, y: 26.65 },
+      RB:  { x: 54.5, y: 22.20 },
+      WR1: { x: 59.5, y:  6.00 },
+      WR2: { x: 59.5, y: 47.30 },
+      TE:  { x: 59.5, y: 34.00 },
+    },
+  },
+  iform: {
+    label: 'I-Formation',
+    offense: {
+      QB:  { x: 58.6, y: 26.65 },
+      RB:  { x: 52.5, y: 26.65 },
+      WR1: { x: 59.5, y:  8.00 },
+      WR2: { x: 59.5, y: 45.30 },
+      TE:  { x: 59.5, y: 32.20 },
+    },
+  },
+  singleback: {
+    label: 'Singleback',
+    offense: {
+      QB:  { x: 58.6, y: 26.65 },
+      RB:  { x: 53.5, y: 26.65 },
+      WR1: { x: 59.5, y:  5.50 },
+      WR2: { x: 59.5, y: 47.80 },
+      TE:  { x: 59.5, y: 33.00 },
+    },
+  },
+};
+
+/* Base defensive alignment — nudged per coverage when a shell is selected. */
+const DEFENSE_BASE = {
+  CB1: { x: 64.5, y:  7.00 },
+  CB2: { x: 64.5, y: 46.30 },
+  FS:  { x: 74.0, y: 26.65 },
+  MLB: { x: 65.5, y: 26.65 },
+  OLB: { x: 64.5, y: 34.00 },
+};
+
+/* Man-coverage assignments: defender → receiver it shadows. */
+const MAN_ASSIGN = { CB1: 'WR1', CB2: 'WR2', OLB: 'TE', MLB: 'RB', FS: 'QB' };
+
+/* Zone landmarks, expressed as offsets from the LOS so they follow the shell. */
+const ZONES = {
+  cover2: {
+    CB1: { dx:  5, y:  7.0, r: 8 },   // flat
+    CB2: { dx:  5, y: 46.3, r: 8 },   // flat
+    FS:  { dx: 18, y: 16.0, r: 11 },  // deep half
+    OLB: { dx: 18, y: 37.3, r: 11 },  // deep half
+    MLB: { dx:  8, y: 26.65, r: 8 },  // hook / middle
+  },
+  cover3: {
+    CB1: { dx: 20, y:  8.0, r: 10 },  // deep third
+    CB2: { dx: 20, y: 45.3, r: 10 },  // deep third
+    FS:  { dx: 20, y: 26.65, r: 10 }, // deep middle third
+    MLB: { dx:  7, y: 21.0, r: 8 },   // hook / curl
+    OLB: { dx:  7, y: 36.0, r: 8 },   // curl / flat
+  },
+};
+
+const OFF_IDS = ['QB', 'WR1', 'WR2', 'RB', 'TE'];
+const DEF_IDS = ['CB1', 'CB2', 'FS', 'MLB', 'OLB'];
+
+/* ═══════════════════════════ State ═══════════════════════════ */
+const state = {
+  formation: 'shotgun',
+  coverage: 'man',
+  speed: 1.0,
+  players: {},          // id → player object (see makePlayer)
+  routes: {},           // offensive id → [{x,y}, …] in field yards
+  passTarget: null,     // {x, y} or null
+  selected: null,       // player id or null
+  playing: false,
+  t: 0,                 // elapsed simulation seconds
+  ball: null,           // in-flight ball, or null
+  outcome: null,        // 'complete' | 'intercepted' | 'incomplete' | null
+  recording: false,
+  title: '',
+};
+
+/* Transient pointer-interaction state (never serialised). */
+const drag = { mode: null, id: null, points: null };
+
+function makePlayer(id, team, pos) {
+  return {
+    id, team,                                  // 'offense' | 'defense'
+    start: { x: pos.x, y: pos.y },             // pre-snap alignment (the source of truth)
+    pos:   { x: pos.x, y: pos.y },             // live position during a sim
+    vel:   { x: 0, y: 0 },
+    dist: 0,                                   // yards travelled along its route
+    progress: 0,                               // 0..1 along the route
+    trail: [],                                 // recent positions, for the motion trail
+    history: [],                               // {t,x,y} — lets defenders react on a delay
+    broke: false,                              // zone defender has abandoned its landmark
+  };
+}
+
+/* ═══════════════════════════ Canvas & scaling ═══════════════════════════ */
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+let view = { scale: 1, offX: 0, offY: 0, w: 0, h: 0 };
+
+/**
+ * Size the backing store to devicePixelRatio so lines stay crisp on retina,
+ * then compute the yards→CSS-pixels transform for the current width.
+ *
+ * Bails out when the container has no width — a hidden tab or a collapsed
+ * parent reports clientWidth 0, and committing that would zero out view.scale
+ * and leave the field unrenderable (and toDataURL exporting "data:,") even
+ * after the layout comes back.
+ */
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.parentElement.clientWidth;
+  if (cssW < 1) return;
+  const cssH = Math.round(cssW * (FIELD.WIDTH / FIELD.LENGTH));
+
+  canvas.style.height = cssH + 'px';
+  canvas.width  = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // draw in CSS pixels; DPR handled here
+
+  view = { scale: cssW / FIELD.LENGTH, offX: 0, offY: 0, w: cssW, h: cssH };
+}
+
+const X  = (yd) => view.offX + yd * view.scale;              // field x → px
+const Y  = (yd) => view.offY + yd * view.scale;              // field y → px
+const S  = (yd) => yd * view.scale;                          // length → px
+const toField = (px, py) => ({ x: (px - view.offX) / view.scale, y: (py - view.offY) / view.scale });
+
+/* ═══════════════════════════ Geometry helpers ═══════════════════════════ */
+const dist  = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
+
+/** Total length of a polyline, in yards. */
+function pathLength(pts) {
+  let L = 0;
+  for (let i = 1; i < pts.length; i++) L += dist(pts[i - 1], pts[i]);
+  return L;
+}
+
+/** Point at arc-length `d` along a polyline, plus the local heading. */
+function pointAtDistance(pts, d) {
+  if (pts.length === 0) return null;
+  if (d <= 0) return { ...pts[0], angle: 0 };
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const seg = dist(pts[i - 1], pts[i]);
+    if (acc + seg >= d) {
+      const t = seg === 0 ? 0 : (d - acc) / seg;
+      return {
+        x: lerp(pts[i - 1].x, pts[i].x, t),
+        y: lerp(pts[i - 1].y, pts[i].y, t),
+        angle: Math.atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x),
+      };
+    }
+    acc += seg;
+  }
+  const last = pts[pts.length - 1], prev = pts[pts.length - 2] || last;
+  return { ...last, angle: Math.atan2(last.y - prev.y, last.x - prev.x) };
+}
+
+/** Drop hand-drawn points that are too close together — keeps curves smooth. */
+function simplify(pts, minGap = 0.8) {
+  const out = [pts[0]];
+  for (const p of pts.slice(1)) if (dist(out[out.length - 1], p) >= minGap) out.push(p);
+  if (out.length < 2) out.push(pts[pts.length - 1]);
+  return out;
+}
+
+/** Nearest point on a polyline to `p`, with its distance. Used for pass targeting. */
+function nearestOnPath(pts, p) {
+  let best = null;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const len2 = vx * vx + vy * vy;
+    const t = len2 === 0 ? 0 : clamp(((p.x - a.x) * vx + (p.y - a.y) * vy) / len2, 0, 1);
+    const q = { x: a.x + vx * t, y: a.y + vy * t };
+    const d = dist(q, p);
+    if (!best || d < best.d) best = { d, point: q };
+  }
+  return best;
+}
+
+/* ═══════════════════════════ Route presets ═══════════════════════════
+   Built relative to the player: +x is downfield, "inside" is toward mid-field. */
+function buildPreset(kind, player) {
+  const s = player.start;
+  const inward = s.y > FIELD.MID_Y ? -1 : 1;   // sign that walks toward the middle
+  const P = (dx, dy) => ({ x: s.x + dx, y: clamp(s.y + dy * inward, 1.5, FIELD.WIDTH - 1.5) });
+
+  switch (kind) {
+    case 'slant': return [P(0, 0), P(2.5, 0), P(9.5, 7)];
+    case 'go':    return [P(0, 0), P(6, -0.6), P(16, -1.0), P(28, -1.2)];
+    case 'out':   return [P(0, 0), P(4, 0), P(8, 0), P(9.5, -5), P(10, -8.5)];
+    case 'curl':  return [P(0, 0), P(6, 0), P(12, 0.4), P(13.5, 2.2), P(11.5, 3.4)];
+    default:      return null;
+  }
+}
+
+/* ═══════════════════════════ Setup & reset ═══════════════════════════ */
+
+/** Rebuild all ten players from the active formation + coverage shell. */
+function applyFormation(key) {
+  state.formation = key;
+  const off = FORMATIONS[key].offense;
+  state.players = {};
+  for (const id of OFF_IDS) state.players[id] = makePlayer(id, 'offense', off[id]);
+  for (const id of DEF_IDS) state.players[id] = makePlayer(id, 'defense', defenseStart(id));
+  state.routes = {};
+  state.passTarget = null;
+  state.selected = null;
+  resetPlay();
+  syncUI();
+}
+
+/** Pre-snap defensive alignment for the current coverage. */
+function defenseStart(id) {
+  const base = DEFENSE_BASE[id];
+  if (state.coverage === 'man') return { ...base };
+  const z = ZONES[state.coverage][id];
+  // Zone defenders align a little shallower than their landmark and bail at the snap.
+  return { x: FIELD.LOS + Math.min(z.dx, 9), y: z.y };
+}
+
+/** Re-align defenders when the coverage changes, leaving offense untouched. */
+function applyCoverage(key) {
+  state.coverage = key;
+  for (const id of DEF_IDS) {
+    const p = defenseStart(id);
+    state.players[id].start = { ...p };
+  }
+  document.getElementById('coverageHint').textContent =
+    key === 'man'
+      ? 'Defenders shadow their assigned receiver with a reaction delay.'
+      : key === 'cover2'
+        ? 'Two deep halves, three underneath. Defenders break on anything entering their zone.'
+        : 'Three deep thirds, two underneath curl/flat defenders.';
+  resetPlay();
+  syncUI();
+}
+
+/** Rewind every player to its alignment and clear the ball / outcome. */
+function resetPlay() {
+  state.playing = false;
+  state.t = 0;
+  state.ball = null;
+  state.outcome = null;
+  for (const p of Object.values(state.players)) {
+    p.pos = { ...p.start };
+    p.vel = { x: 0, y: 0 };
+    p.dist = 0; p.progress = 0;
+    p.trail = []; p.history = [];
+    p.broke = false;
+  }
+  setStatus('idle', 'Ready — design your play');
+  updatePlayButton();
+}
+
+/* ═══════════════════════════ Simulation step ═══════════════════════════ */
+
+/** Which receiver owns the pass target? Whichever route it sits closest to. */
+function targetReceiverId() {
+  if (!state.passTarget) return null;
+  let best = null;
+  for (const id of OFF_IDS) {
+    if (id === 'QB' || !state.routes[id]) continue;
+    const n = nearestOnPath(state.routes[id], state.passTarget);
+    if (n && (!best || n.d < best.d)) best = { d: n.d, id };
+  }
+  return best && best.d < 4 ? best.id : null;
+}
+
+/** Advance the whole world by `dt` seconds. */
+function step(dt) {
+  state.t += dt;
+
+  // ── Offense: run routes ────────────────────────────────────────────────
+  for (const id of OFF_IDS) {
+    const p = state.players[id];
+    const route = state.routes[id];
+
+    if (route && route.length > 1) {
+      const total = pathLength(route);
+      const speed = id === 'QB' ? PHYS.QB_DROP_SPEED : PHYS.WR_SPEED;
+      p.dist = Math.min(total, p.dist + speed * dt);
+      p.progress = total > 0 ? p.dist / total : 1;
+      const at = pointAtDistance(route, p.dist);
+      p.vel = { x: (at.x - p.pos.x) / dt, y: (at.y - p.pos.y) / dt };
+      p.pos = { x: at.x, y: at.y };
+    } else if (id === 'QB' && !state.ball && !state.outcome) {
+      // No QB route drawn: take a short natural drop back from centre.
+      const dropTo = p.start.x - 4;
+      if (p.pos.x > dropTo) p.pos.x -= PHYS.QB_DROP_SPEED * dt;
+    }
+
+    pushHistory(p);
+    pushTrail(p);
+  }
+
+  // ── Ball release ───────────────────────────────────────────────────────
+  const targetId = targetReceiverId();
+  if (state.passTarget && !state.ball && !state.outcome) {
+    const rec = targetId && state.players[targetId];
+    if (rec && rec.progress >= PHYS.RELEASE_AT) launchBall(targetId);
+  }
+
+  // ── Defense ────────────────────────────────────────────────────────────
+  for (const id of DEF_IDS) {
+    const d = state.players[id];
+    const goal = defensiveGoal(id, d);
+    steerToward(d, goal, dt);
+    pushTrail(d);
+  }
+
+  // ── Ball flight ────────────────────────────────────────────────────────
+  if (state.ball) updateBall(dt);
+
+  // ── Safety valve: a play with no throw still has to end ────────────────
+  if (!state.outcome && !state.ball && state.t > PHYS.PLAY_TIMEOUT) finishPlay('incomplete');
+}
+
+/** Record a timestamped breadcrumb so man defenders can chase a stale position. */
+function pushHistory(p) {
+  p.history.push({ t: state.t, x: p.pos.x, y: p.pos.y });
+  if (p.history.length > 240) p.history.shift();
+}
+
+/** Where a player *appeared* to be `REACTION` seconds ago. */
+function delayedPos(p) {
+  const want = state.t - PHYS.REACTION;
+  for (let i = p.history.length - 1; i >= 0; i--) if (p.history[i].t <= want) return p.history[i];
+  return p.history[0] || p.pos;
+}
+
+function pushTrail(p) {
+  p.trail.push({ x: p.pos.x, y: p.pos.y });
+  if (p.trail.length > 26) p.trail.shift();
+}
+
+/**
+ * The point a defender is currently trying to reach.
+ * Man: the delayed position of its assignment. Zone: the landmark, unless the
+ * ball is live or a receiver has entered the boundary — then it breaks and pursues.
+ */
+function defensiveGoal(id, d) {
+  // Everyone converges on a live ball's landing spot once it is in the air.
+  if (state.ball) return { x: state.ball.landing.x, y: state.ball.landing.y };
+
+  if (state.coverage === 'man') {
+    const mark = state.players[MAN_ASSIGN[id]];
+    if (!mark) return { ...d.start };
+    const dp = delayedPos(mark);
+    // Lead the receiver slightly so the chase looks like tracking, not following.
+    return { x: dp.x + (mark.vel.x || 0) * 0.12, y: dp.y + (mark.vel.y || 0) * 0.12 };
+  }
+
+  const z = ZONES[state.coverage][id];
+  const landmark = { x: FIELD.LOS + z.dx, y: z.y };
+
+  // Break on the nearest receiver inside the zone's boundary threshold.
+  let intruder = null;
+  for (const oid of OFF_IDS) {
+    if (oid === 'QB') continue;
+    const o = state.players[oid];
+    const dd = dist(o.pos, landmark);
+    if (dd < z.r && (!intruder || dd < intruder.d)) intruder = { d: dd, p: o };
+  }
+  if (intruder) { d.broke = true; return { x: intruder.p.pos.x, y: intruder.p.pos.y }; }
+  d.broke = false;
+  return landmark;
+}
+
+/** Accelerate a defender toward `goal`, capped at top speed, with light damping. */
+function steerToward(d, goal, dt) {
+  const dx = goal.x - d.pos.x, dy = goal.y - d.pos.y;
+  const len = Math.hypot(dx, dy);
+  if (len > 0.05) {
+    d.vel.x += (dx / len) * PHYS.DEF_ACCEL * dt;
+    d.vel.y += (dy / len) * PHYS.DEF_ACCEL * dt;
+  }
+  d.vel.x *= 0.90; d.vel.y *= 0.90;                 // drag, so they settle instead of orbiting
+  const sp = Math.hypot(d.vel.x, d.vel.y);
+  if (sp > PHYS.DEF_SPEED) { d.vel.x *= PHYS.DEF_SPEED / sp; d.vel.y *= PHYS.DEF_SPEED / sp; }
+  d.pos.x = clamp(d.pos.x + d.vel.x * dt, 0.5, FIELD.LENGTH - 0.5);
+  d.pos.y = clamp(d.pos.y + d.vel.y * dt, 0.5, FIELD.WIDTH - 0.5);
+}
+
+/**
+ * Throw the ball on a parabolic 3-D arc.
+ * Horizontal motion is linear from the QB to the target; the z-axis uses a real
+ * projectile solve — pick the flight time from the distance, then choose the
+ * launch velocity that brings z back to 0 exactly on arrival under gravity.
+ */
+function launchBall(receiverId) {
+  const qb = state.players.QB;
+  const from = { x: qb.pos.x, y: qb.pos.y };
+  const to = { ...state.passTarget };
+  const d = dist(from, to);
+  const flight = Math.max(0.45, d / PHYS.THROW_SPEED);
+  state.ball = {
+    from, landing: to, receiverId,
+    t: 0, flight,
+    vz: 0.5 * PHYS.GRAVITY * flight,   // v0 such that z(flight) = 0
+    z: 0, spin: 0,
+    pos: { ...from },
+  };
+  setStatus('live', 'Ball in the air…');
+}
+
+function updateBall(dt) {
+  const b = state.ball;
+  b.t += dt;
+  const u = clamp(b.t / b.flight, 0, 1);
+  b.pos = { x: lerp(b.from.x, b.landing.x, u), y: lerp(b.from.y, b.landing.y, u) };
+  b.z = Math.max(0, b.vz * b.t - 0.5 * PHYS.GRAVITY * b.t * b.t);   // z(t) under gravity
+  b.spin += dt * 22;
+
+  if (b.t >= b.flight) resolveCatch();
+}
+
+/**
+ * The ball has landed. Rank every eligible player by distance to the spot:
+ * a defender inside pick range takes it away, an offensive player inside catch
+ * range hauls it in, and anything else falls incomplete.
+ */
+function resolveCatch() {
+  const spot = state.ball.landing;
+  state.ball = null;
+
+  const closest = Object.values(state.players)
+    .filter((p) => p.id !== 'QB')
+    .map((p) => ({ p, d: dist(p.pos, spot) }))
+    .sort((a, b) => a.d - b.d)[0];
+
+  if (!closest) return finishPlay('incomplete');
+  if (closest.p.team === 'defense' && closest.d <= PHYS.PICK_RADIUS) return finishPlay('intercepted');
+  if (closest.p.team === 'offense' && closest.d <= PHYS.CATCH_RADIUS) return finishPlay('complete');
+  return finishPlay('incomplete');
+}
+
+function finishPlay(outcome) {
+  state.outcome = outcome;
+  state.playing = false;
+  updatePlayButton();
+  const map = {
+    complete:    ['Pass Completed!', 'emerald', 'live'],
+    intercepted: ['Intercepted!', 'red', 'bad'],
+    incomplete:  ['Incomplete Pass', 'slate', 'idle'],
+  };
+  const [msg, tone, dot] = map[outcome];
+  toast(msg, tone);
+  setStatus(dot, msg);
+}
+
+/* ═══════════════════════════ Rendering ═══════════════════════════ */
+
+const COLORS = {
+  turf: '#14532D',
+  turfAlt: '#166534',
+  endzone: '#0F3D22',
+  line: 'rgba(255,255,255,.85)',
+  faint: 'rgba(255,255,255,.35)',
+  offense: '#3B82F6',
+  defense: '#EF4444',
+  target: '#FB923C',
+  ball: '#8B4513',
+};
+
+function drawField() {
+  ctx.clearRect(0, 0, view.w, view.h);
+
+  // Turf base with subtle mow stripes every 10 yards.
+  ctx.fillStyle = COLORS.turf;
+  ctx.fillRect(0, 0, view.w, view.h);
+  for (let yd = FIELD.ENDZONE; yd < FIELD.LENGTH - FIELD.ENDZONE; yd += 10) {
+    if (((yd - FIELD.ENDZONE) / 10) % 2 === 0) continue;
+    ctx.fillStyle = COLORS.turfAlt;
+    ctx.fillRect(X(yd), 0, S(10), view.h);
+  }
+
+  // Endzones.
+  ctx.fillStyle = COLORS.endzone;
+  ctx.fillRect(X(0), 0, S(FIELD.ENDZONE), view.h);
+  ctx.fillRect(X(FIELD.LENGTH - FIELD.ENDZONE), 0, S(FIELD.ENDZONE), view.h);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,.16)';
+  ctx.font = `800 ${S(3.4)}px Inter, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [xc, rot] of [[5, -Math.PI / 2], [FIELD.LENGTH - 5, Math.PI / 2]]) {
+    ctx.save(); ctx.translate(X(xc), Y(FIELD.MID_Y)); ctx.rotate(rot);
+    ctx.fillText('PLOTBOARD', 0, 0); ctx.restore();
+  }
+  ctx.restore();
+
+  // Yard lines every 5, hashes every 1.
+  ctx.lineWidth = Math.max(1, S(0.12));
+  for (let yd = FIELD.ENDZONE; yd <= FIELD.LENGTH - FIELD.ENDZONE; yd += 5) {
+    const major = (yd - FIELD.ENDZONE) % 10 === 0;
+    ctx.strokeStyle = major ? COLORS.line : COLORS.faint;
+    ctx.beginPath(); ctx.moveTo(X(yd), 0); ctx.lineTo(X(yd), view.h); ctx.stroke();
+  }
+  ctx.strokeStyle = COLORS.faint;
+  ctx.lineWidth = Math.max(1, S(0.1));
+  for (let yd = FIELD.ENDZONE + 1; yd < FIELD.LENGTH - FIELD.ENDZONE; yd++) {
+    if ((yd - FIELD.ENDZONE) % 5 === 0) continue;
+    for (const y of [FIELD.WIDTH - FIELD.HASH_INSET, FIELD.HASH_INSET]) {
+      ctx.beginPath(); ctx.moveTo(X(yd), Y(y - 0.4)); ctx.lineTo(X(yd), Y(y + 0.4)); ctx.stroke();
+    }
+    for (const y of [0, FIELD.WIDTH]) {
+      const dir = y === 0 ? 1 : -1;
+      ctx.beginPath(); ctx.moveTo(X(yd), Y(y)); ctx.lineTo(X(yd), Y(y + dir * 0.7)); ctx.stroke();
+    }
+  }
+
+  // Yard numbers (10…50…10), mirrored on both sides of the field.
+  ctx.fillStyle = 'rgba(255,255,255,.6)';
+  ctx.font = `700 ${S(2.6)}px Inter, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let yd = FIELD.ENDZONE + 10; yd <= FIELD.LENGTH - FIELD.ENDZONE - 10; yd += 10) {
+    const n = 50 - Math.abs(yd - FIELD.LENGTH / 2);
+    for (const [y, rot] of [[6, 0], [FIELD.WIDTH - 6, Math.PI]]) {
+      ctx.save(); ctx.translate(X(yd), Y(y)); ctx.rotate(rot);
+      ctx.fillText(String(n), 0, 0); ctx.restore();
+    }
+  }
+
+  // Line of scrimmage.
+  ctx.save();
+  ctx.setLineDash([S(0.8), S(0.6)]);
+  ctx.strokeStyle = 'rgba(250,204,21,.75)';
+  ctx.lineWidth = Math.max(1, S(0.16));
+  ctx.beginPath(); ctx.moveTo(X(FIELD.LOS), 0); ctx.lineTo(X(FIELD.LOS), view.h); ctx.stroke();
+  ctx.restore();
+
+  // Sideline border.
+  ctx.strokeStyle = 'rgba(255,255,255,.9)';
+  ctx.lineWidth = Math.max(1, S(0.18));
+  ctx.strokeRect(X(FIELD.ENDZONE), Y(0.1), S(FIELD.LENGTH - 2 * FIELD.ENDZONE), S(FIELD.WIDTH - 0.2));
+}
+
+/** Trace a polyline as a smooth quadratic spline through segment midpoints. */
+function tracePath(pts) {
+  ctx.beginPath();
+  ctx.moveTo(X(pts[0].x), Y(pts[0].y));
+  if (pts.length === 2) { ctx.lineTo(X(pts[1].x), Y(pts[1].y)); return; }
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+    ctx.quadraticCurveTo(X(pts[i].x), Y(pts[i].y), X(mx), Y(my));
+  }
+  const last = pts[pts.length - 1];
+  ctx.quadraticCurveTo(X(last.x), Y(last.y), X(last.x), Y(last.y));
+}
+
+function drawRoutes() {
+  for (const [id, pts] of Object.entries(state.routes)) {
+    if (!pts || pts.length < 2) continue;
+    const isSel = state.selected === id;
+
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(59,130,246,.9)';
+    ctx.shadowBlur = isSel ? 16 : 8;
+    ctx.strokeStyle = isSel ? '#93C5FD' : 'rgba(147,197,253,.75)';
+    ctx.lineWidth = Math.max(1.5, S(isSel ? 0.34 : 0.26));
+    tracePath(pts); ctx.stroke();
+    ctx.restore();
+
+    // Arrowhead on the final heading.
+    const a = pts[pts.length - 1], b = pts[pts.length - 2];
+    const ang = Math.atan2(a.y - b.y, a.x - b.x);
+    const h = S(1.5);
+    ctx.save();
+    ctx.translate(X(a.x), Y(a.y)); ctx.rotate(ang);
+    ctx.fillStyle = isSel ? '#93C5FD' : 'rgba(147,197,253,.85)';
+    ctx.beginPath(); ctx.moveTo(h, 0); ctx.lineTo(-h * 0.5, h * 0.55); ctx.lineTo(-h * 0.5, -h * 0.55); ctx.closePath();
+    ctx.fill(); ctx.restore();
+  }
+
+  // The route currently being hand-drawn.
+  if (drag.mode === 'route' && drag.points && drag.points.length > 1) {
+    ctx.save();
+    ctx.setLineDash([S(0.5), S(0.4)]);
+    ctx.strokeStyle = 'rgba(191,219,254,.9)';
+    ctx.lineWidth = Math.max(1.5, S(0.28));
+    ctx.lineCap = 'round';
+    tracePath(drag.points); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/** Faded breadcrumb behind a moving player. */
+function drawTrail(p) {
+  if (p.trail.length < 2) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  const col = p.team === 'offense' ? '59,130,246' : '239,68,68';
+  for (let i = 1; i < p.trail.length; i++) {
+    const a = i / p.trail.length;
+    ctx.strokeStyle = `rgba(${col},${a * 0.35})`;
+    ctx.lineWidth = Math.max(1, S(0.3 * a));
+    ctx.beginPath();
+    ctx.moveTo(X(p.trail[i - 1].x), Y(p.trail[i - 1].y));
+    ctx.lineTo(X(p.trail[i].x), Y(p.trail[i].y));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPlayers() {
+  for (const p of Object.values(state.players)) {
+    drawTrail(p);
+
+    const off = p.team === 'offense';
+    const base = off ? COLORS.offense : COLORS.defense;
+    const glow = off ? 'rgba(59,130,246,.95)' : 'rgba(239,68,68,.95)';
+    const r = S(1.35);
+    const sel = state.selected === p.id;
+
+    ctx.save();
+    // Ground shadow keeps nodes legible against the bright turf stripes.
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
+    ctx.beginPath(); ctx.ellipse(X(p.pos.x), Y(p.pos.y) + r * 0.5, r * 0.9, r * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = sel ? 26 : 14;
+    const g = ctx.createRadialGradient(X(p.pos.x) - r * .35, Y(p.pos.y) - r * .35, r * .1, X(p.pos.x), Y(p.pos.y), r);
+    g.addColorStop(0, off ? '#93C5FD' : '#FCA5A5');
+    g.addColorStop(1, base);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(X(p.pos.x), Y(p.pos.y), r, 0, Math.PI * 2); ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = sel ? '#FFFFFF' : 'rgba(255,255,255,.55)';
+    ctx.lineWidth = sel ? Math.max(2, S(0.22)) : Math.max(1, S(0.12));
+    ctx.beginPath(); ctx.arc(X(p.pos.x), Y(p.pos.y), r, 0, Math.PI * 2); ctx.stroke();
+
+    if (sel) { // selection ring
+      ctx.strokeStyle = 'rgba(255,255,255,.35)';
+      ctx.lineWidth = Math.max(1, S(0.1));
+      ctx.beginPath(); ctx.arc(X(p.pos.x), Y(p.pos.y), r * 1.75, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 ${S(0.95)}px Inter, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(p.id, X(p.pos.x), Y(p.pos.y) + S(0.05));
+    ctx.restore();
+  }
+}
+
+function drawTarget() {
+  if (!state.passTarget) return;
+  const { x, y } = state.passTarget;
+  const r = S(1.5);
+  const pulse = 1 + Math.sin(performance.now() / 260) * 0.1;
+
+  ctx.save();
+  ctx.translate(X(x), Y(y));
+  ctx.strokeStyle = COLORS.target;
+  ctx.shadowColor = 'rgba(251,146,60,.9)';
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = Math.max(1.5, S(0.16));
+  ctx.beginPath(); ctx.arc(0, 0, r * pulse, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-r * 1.5, 0); ctx.lineTo(-r * 0.5, 0);
+  ctx.moveTo(r * 0.5, 0);  ctx.lineTo(r * 1.5, 0);
+  ctx.moveTo(0, -r * 1.5); ctx.lineTo(0, -r * 0.5);
+  ctx.moveTo(0, r * 0.5);  ctx.lineTo(0, r * 1.5);
+  ctx.stroke();
+  ctx.fillStyle = COLORS.target;
+  ctx.beginPath(); ctx.arc(0, 0, S(0.22), 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+/** Football: shadow on the turf, ball lifted by its z-height and spinning. */
+function drawBall() {
+  const b = state.ball;
+  if (!b) return;
+  const px = X(b.pos.x), py = Y(b.pos.y);
+  const lift = S(b.z * 0.55);
+  const scale = 1 + b.z * 0.035;
+
+  ctx.save();
+  ctx.fillStyle = `rgba(0,0,0,${0.4 - Math.min(0.3, b.z * 0.03)})`;
+  ctx.beginPath(); ctx.ellipse(px, py, S(0.65), S(0.34), 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(px, py - lift);
+  ctx.rotate(b.spin);
+  ctx.scale(scale, scale);
+  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 10;
+  const rx = S(0.85), ry = S(0.5);
+  const g = ctx.createLinearGradient(-rx, -ry, rx, ry);
+  g.addColorStop(0, '#A0522D'); g.addColorStop(1, '#6B3410');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#FFF8F0'; ctx.lineWidth = Math.max(1, S(0.08));
+  ctx.beginPath(); ctx.moveTo(-rx * .45, 0); ctx.lineTo(rx * .45, 0); ctx.stroke();
+  for (let i = -2; i <= 2; i++) {
+    const lx = i * rx * 0.18;
+    ctx.beginPath(); ctx.moveTo(lx, -ry * .3); ctx.lineTo(lx, ry * .3); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Translucent shells so zone assignments are readable while designing. */
+function drawZones() {
+  if (state.coverage === 'man') return;
+  const zs = ZONES[state.coverage];
+  ctx.save();
+  for (const [id, z] of Object.entries(zs)) {
+    const broke = state.players[id]?.broke;
+    ctx.fillStyle = broke ? 'rgba(239,68,68,.14)' : 'rgba(239,68,68,.08)';
+    ctx.strokeStyle = broke ? 'rgba(239,68,68,.6)' : 'rgba(239,68,68,.34)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([S(0.5), S(0.5)]);
+    ctx.beginPath(); ctx.arc(X(FIELD.LOS + z.dx), Y(z.y), S(z.r), 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function render() {
+  drawField();
+  drawZones();
+  drawRoutes();
+  drawTarget();
+  drawPlayers();
+  drawBall();
+}
+
+/* ═══════════════════════════ Animation loop ═══════════════════════════ */
+let lastTime = performance.now();
+
+function loop(now) {
+  // Clamp dt so a background tab or a slow export frame can't teleport players.
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+  if (state.playing) step(dt * state.speed);
+  render();
+  if (state.recording) captureFrame();
+  requestAnimationFrame(loop);
+}
+
+/* ═══════════════════════════ Pointer interaction ═══════════════════════════ */
+
+function pointerPos(e) {
+  const r = canvas.getBoundingClientRect();
+  return toField(e.clientX - r.left, e.clientY - r.top);
+}
+
+function hitPlayer(fp) {
+  for (const p of Object.values(state.players)) if (dist(p.pos, fp) < 1.7) return p;
+  return null;
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  const fp = pointerPos(e);
+  const hit = hitPlayer(fp);
+
+  if (hit) {                                   // grab a node → select + drag it
+    state.selected = hit.id;
+    drag.mode = 'player'; drag.id = hit.id;
+    syncUI();
+    return;
+  }
+
+  const sel = state.selected && state.players[state.selected];
+  if (!sel || sel.team !== 'offense') { state.selected = null; syncUI(); return; }
+
+  if (sel.id === 'QB') {                       // QB selected → set the throw target
+    setPassTarget(fp);
+    return;
+  }
+
+  drag.mode = 'route'; drag.id = sel.id;       // otherwise start drawing a route
+  drag.points = [{ ...sel.start }, fp];
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag.mode) return;
+  const fp = pointerPos(e);
+
+  if (drag.mode === 'player') {
+    const p = state.players[drag.id];
+    const nx = clamp(fp.x, 0.8, FIELD.LENGTH - 0.8);
+    const ny = clamp(fp.y, 0.8, FIELD.WIDTH - 0.8);
+    p.start = { x: nx, y: ny };
+    p.pos = { x: nx, y: ny };
+    // Keep an existing route glued to the node it belongs to.
+    if (state.routes[p.id]) {
+      const head = state.routes[p.id][0];
+      const dx = nx - head.x, dy = ny - head.y;
+      state.routes[p.id] = state.routes[p.id].map((q) => ({ x: q.x + dx, y: q.y + dy }));
+    }
+  } else if (drag.mode === 'route') {
+    drag.points.push(fp);
+  }
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (drag.mode === 'route' && drag.points && drag.points.length > 2) {
+    const pts = simplify(drag.points);
+    if (pathLength(pts) > 1.5) { state.routes[drag.id] = pts; resetPlay(); }
+  }
+  drag.mode = null; drag.id = null; drag.points = null;
+  syncUI();
+});
+
+/** Snap the throw target onto the nearest route, if the click was close enough. */
+function setPassTarget(fp) {
+  let best = null;
+  for (const id of OFF_IDS) {
+    if (id === 'QB' || !state.routes[id]) continue;
+    const n = nearestOnPath(state.routes[id], fp);
+    if (n && (!best || n.d < best.d)) best = { ...n, id };
+  }
+  if (!best) return toast('Draw a receiver route first, then pick a spot on it.', 'slate');
+  if (best.d > 3.5) return toast('Click closer to a route to set the target.', 'slate');
+  state.passTarget = best.point;
+  resetPlay();
+  toast(`Throw target set on ${best.id}'s route.`, 'orange');
+  syncUI();
+}
+
+/* ═══════════════════════════ UI wiring ═══════════════════════════ */
+
+function setStatus(kind, text) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'h-2 w-2 rounded-full ' + ({
+    idle: 'bg-slate-600',
+    live: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.9)]',
+    bad:  'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,.9)]',
+  }[kind] || 'bg-slate-600');
+  document.getElementById('statusText').textContent = text;
+}
+
+function toast(msg, tone = 'slate') {
+  const tones = {
+    emerald: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200',
+    red:     'border-red-500/50 bg-red-500/15 text-red-200',
+    orange:  'border-orange-500/50 bg-orange-500/15 text-orange-200',
+    blue:    'border-blue-500/50 bg-blue-500/15 text-blue-200',
+    slate:   'border-slate-600 bg-slate-800/90 text-slate-200',
+  };
+  const el = document.createElement('div');
+  el.className = `toast-in mb-2 rounded-xl border px-4 py-2.5 text-[13px] font-bold shadow-2xl backdrop-blur ${tones[tone] || tones.slate}`;
+  el.textContent = msg;
+  document.getElementById('toastHost').appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s, transform .3s'; el.style.opacity = '0'; el.style.transform = 'translateY(8px)'; }, 2400);
+  setTimeout(() => el.remove(), 2800);
+}
+
+function updatePlayButton() {
+  const playing = state.playing;
+  document.getElementById('playLabel').textContent = playing ? 'Pause' : (state.t > 0 && !state.outcome ? 'Resume' : 'Simulate Play');
+  document.getElementById('playIcon').innerHTML = playing
+    ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>'
+    : '<path d="M8 5.14v13.72L19 12 8 5.14Z"/>';
+}
+
+/** Push all model state into the DOM. Cheap enough to call on any change. */
+function syncUI() {
+  document.querySelectorAll('[data-formation]').forEach((b) =>
+    b.dataset.active = String(b.dataset.formation === state.formation));
+  document.querySelectorAll('[data-coverage]').forEach((b) =>
+    b.dataset.active = String(b.dataset.coverage === state.coverage));
+
+  const name = document.getElementById('inspectorName');
+  const meta = document.getElementById('inspectorMeta');
+  const sel = state.selected && state.players[state.selected];
+
+  if (!sel) {
+    name.textContent = 'None Selected';
+    name.className = 'text-[15px] font-extrabold text-slate-500';
+    meta.textContent = 'Click a player node on the field.';
+  } else if (sel.team === 'offense') {
+    name.textContent = `Offense — ${sel.id}`;
+    name.className = 'text-[15px] font-extrabold text-blue-400 [text-shadow:0_0_14px_rgba(59,130,246,.85)]';
+    meta.textContent = sel.id === 'QB'
+      ? 'Click a spot on a receiver route to set the throw target.'
+      : (state.routes[sel.id]
+          ? `Route: ${pathLength(state.routes[sel.id]).toFixed(1)} yd. Drag on the field to redraw.`
+          : 'Drag on the field to draw a route, or use a preset.');
+  } else {
+    name.textContent = `Defense — ${sel.id}`;
+    name.className = 'text-[15px] font-extrabold text-red-400 [text-shadow:0_0_14px_rgba(239,68,68,.85)]';
+    meta.textContent = state.coverage === 'man'
+      ? `Man coverage on ${MAN_ASSIGN[sel.id]}.`
+      : `Zone landmark: ${ZONES[state.coverage][sel.id].dx} yd past the LOS.`;
+  }
+}
+
+/* Formation / coverage / presets */
+document.querySelectorAll('[data-formation]').forEach((b) =>
+  b.addEventListener('click', () => { applyFormation(b.dataset.formation); toast(`${FORMATIONS[b.dataset.formation].label} loaded.`, 'blue'); }));
+
+document.querySelectorAll('[data-coverage]').forEach((b) =>
+  b.addEventListener('click', () => applyCoverage(b.dataset.coverage)));
+
+document.querySelectorAll('[data-route]').forEach((b) =>
+  b.addEventListener('click', () => {
+    const sel = state.selected && state.players[state.selected];
+    if (!sel || sel.team !== 'offense') return toast('Select an offensive player first.', 'slate');
+    if (sel.id === 'QB') return toast('The QB drops back — pick a receiver instead.', 'slate');
+    state.routes[sel.id] = buildPreset(b.dataset.route, sel);
+    state.passTarget = null;
+    resetPlay(); syncUI();
+    toast(`${b.textContent.trim()} applied to ${sel.id}.`, 'blue');
+  }));
+
+/* Speed */
+const speedSlider = document.getElementById('speedSlider');
+speedSlider.addEventListener('input', () => {
+  state.speed = parseFloat(speedSlider.value);
+  document.getElementById('speedBadge').textContent = state.speed.toFixed(1) + 'x';
+});
+
+/* Playback */
+document.getElementById('btnPlay').addEventListener('click', () => {
+  if (state.playing) { state.playing = false; updatePlayButton(); setStatus('idle', 'Paused'); return; }
+  if (state.outcome) resetPlay();
+  const hasRoute = OFF_IDS.some((id) => id !== 'QB' && state.routes[id]);
+  if (!hasRoute) return toast('Draw at least one route before simulating.', 'slate');
+  state.playing = true;
+  lastTime = performance.now();
+  setStatus('live', 'Play is live…');
+  updatePlayButton();
+});
+
+document.getElementById('btnReset').addEventListener('click', () => { resetPlay(); toast('Field reset.', 'blue'); });
+
+document.getElementById('btnClearRoutes').addEventListener('click', () => {
+  state.routes = {}; state.passTarget = null; resetPlay(); syncUI();
+  toast('Routes cleared.', 'blue');
+});
+
+/* ═══════════════════════════ Persistence: Supabase + local ═══════════════════════════ */
+
+const LS = { url: 'plotboard.sb.url', key: 'plotboard.sb.key', play: (id) => `plotboard.play.${id}` };
+let supa = null;   // supabase client, or null when running on the local fallback
+
+/** Serialise the design (positions, routes, target) — this is the share payload. */
+function serialize() {
+  const positions = {};
+  for (const [id, p] of Object.entries(state.players)) {
+    positions[id] = { x: +p.start.x.toFixed(3), y: +p.start.y.toFixed(3) };
+  }
+  const routes = {};
+  for (const [id, pts] of Object.entries(state.routes)) {
+    routes[id] = pts.map((p) => ({ x: +p.x.toFixed(3), y: +p.y.toFixed(3) }));
+  }
+  return {
+    title: document.getElementById('playTitle').value.trim() || 'Untitled Play',
+    positions,
+    routes,
+    pass_target: state.passTarget ? { x: +state.passTarget.x.toFixed(3), y: +state.passTarget.y.toFixed(3) } : null,
+    formation: state.formation,
+    coverage: state.coverage,
+  };
+}
+
+/** Rebuild the board from a stored payload. */
+function deserialize(row) {
+  if (row.formation && FORMATIONS[row.formation]) state.formation = row.formation;
+  if (row.coverage && (row.coverage === 'man' || ZONES[row.coverage])) state.coverage = row.coverage;
+
+  state.players = {};
+  for (const id of OFF_IDS) {
+    const p = row.positions?.[id] || FORMATIONS[state.formation].offense[id];
+    state.players[id] = makePlayer(id, 'offense', p);
+  }
+  for (const id of DEF_IDS) {
+    const p = row.positions?.[id] || defenseStart(id);
+    state.players[id] = makePlayer(id, 'defense', p);
+  }
+  state.routes = {};
+  for (const [id, pts] of Object.entries(row.routes || {})) {
+    if (Array.isArray(pts) && pts.length > 1) state.routes[id] = pts.map((q) => ({ x: q.x, y: q.y }));
+  }
+  state.passTarget = row.pass_target ? { ...row.pass_target } : null;
+  document.getElementById('playTitle').value = row.title || '';
+  state.selected = null;
+  resetPlay();
+  syncUI();
+}
+
+function shortId() {
+  // 10-char base36 id — short enough for a URL, random enough for this use.
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)))
+    .map((b) => b.toString(36)).join('').slice(0, 10);
+}
+
+function setCloudBadge(connected) {
+  const b = document.getElementById('cloudBadge');
+  b.textContent = connected ? 'Supabase connected' : 'Local storage';
+  b.className = connected
+    ? 'rounded-md border border-emerald-500/50 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-300'
+    : 'rounded-md border border-slate-700 bg-slate2 px-2 py-1 text-[10px] font-semibold text-slate-400';
+  document.getElementById('sbStatus').textContent = connected
+    ? 'Connected — plays write to your plays table.'
+    : 'Not connected — using local fallback.';
+  document.getElementById('sbStatus').className =
+    'mt-2 text-[10px] font-semibold ' + (connected ? 'text-emerald-400' : 'text-slate-500');
+}
+
+/** Build the client from stored credentials. Safe to call repeatedly. */
+function connectSupabase(url, key, quiet = false) {
+  if (!url || !key) { supa = null; setCloudBadge(false); return false; }
+  try {
+    supa = window.supabase.createClient(url, key);
+    localStorage.setItem(LS.url, url);
+    localStorage.setItem(LS.key, key);
+    setCloudBadge(true);
+    if (!quiet) toast('Supabase connected.', 'emerald');
+    return true;
+  } catch (err) {
+    supa = null; setCloudBadge(false);
+    if (!quiet) toast('Could not connect: ' + err.message, 'red');
+    return false;
+  }
+}
+
+document.getElementById('btnConnect').addEventListener('click', () =>
+  connectSupabase(document.getElementById('sbUrl').value.trim(), document.getElementById('sbKey').value.trim()));
+
+document.getElementById('btnDisconnect').addEventListener('click', () => {
+  localStorage.removeItem(LS.url); localStorage.removeItem(LS.key);
+  document.getElementById('sbUrl').value = ''; document.getElementById('sbKey').value = '';
+  supa = null; setCloudBadge(false);
+  toast('Credentials cleared — saving locally.', 'blue');
+});
+
+/** Write the current play to Supabase (or localStorage) and surface a share URL. */
+async function sharePlay() {
+  const btn = document.getElementById('btnShare');
+  const payload = serialize();
+  const id = shortId();
+  btn.disabled = true;
+
+  try {
+    if (supa) {
+      const { error } = await supa.from('plays').insert({ id, ...payload });
+      if (error) throw error;
+      toast('Play saved to Supabase.', 'emerald');
+    } else {
+      localStorage.setItem(LS.play(id), JSON.stringify(payload));
+      toast('Saved locally — link works in this browser.', 'blue');
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('play', id);
+    history.replaceState(null, '', url);
+    document.getElementById('shareResult').classList.remove('hidden');
+    document.getElementById('shareLink').value = url.toString();
+  } catch (err) {
+    // A failed cloud write still shouldn't lose the user's work.
+    localStorage.setItem(LS.play(id), JSON.stringify(payload));
+    const url = new URL(window.location.href);
+    url.searchParams.set('play', id);
+    history.replaceState(null, '', url);
+    document.getElementById('shareResult').classList.remove('hidden');
+    document.getElementById('shareLink').value = url.toString();
+    toast('Cloud save failed (' + (err.message || 'error') + ') — saved locally.', 'red');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnShare').addEventListener('click', sharePlay);
+
+document.getElementById('btnCopy').addEventListener('click', async () => {
+  const input = document.getElementById('shareLink');
+  try {
+    await navigator.clipboard.writeText(input.value);
+    toast('Link copied.', 'emerald');
+  } catch {
+    input.select(); document.execCommand('copy');   // clipboard API blocked (e.g. file://)
+    toast('Link copied.', 'emerald');
+  }
+});
+
+/** Hydrate from ?play=ID on load — Supabase first, then the local fallback. */
+async function loadFromUrl() {
+  const id = new URLSearchParams(location.search).get('play');
+  if (!id) return;
+
+  if (supa) {
+    try {
+      const { data, error } = await supa.from('plays').select('*').eq('id', id).single();
+      if (!error && data) { deserialize(data); toast(`Loaded "${data.title || 'play'}" from Supabase.`, 'emerald'); return; }
+    } catch { /* fall through to local */ }
+  }
+  const local = localStorage.getItem(LS.play(id));
+  if (local) { deserialize(JSON.parse(local)); toast('Loaded play from local storage.', 'blue'); return; }
+  toast('Play "' + id + '" not found.', 'red');
+}
+
+/* ═══════════════════════════ GIF89a encoder ═══════════════════════════
+   A dependency-free animated-GIF writer: uniform 3-3-2 RGB quantisation into a
+   fixed 256-colour global palette, then standard variable-width LZW per frame.
+   The palette is fixed rather than computed (no median-cut pass) because the
+   field is a small, known set of hues — it keeps encoding to one cheap pass.  */
+
+/** Global colour table: 256 entries, 3 bits red / 3 bits green / 2 bits blue. */
+function buildPalette() {
+  const pal = new Uint8Array(768);
+  for (let i = 0; i < 256; i++) {
+    pal[i * 3]     = Math.round((((i >> 5) & 7) * 255) / 7);
+    pal[i * 3 + 1] = Math.round((((i >> 2) & 7) * 255) / 7);
+    pal[i * 3 + 2] = Math.round(((i & 3) * 255) / 3);
+  }
+  return pal;
+}
+const GIF_PALETTE = buildPalette();
+
+/** RGBA pixels → one palette index per pixel. */
+function quantize(rgba) {
+  const out = new Uint8Array(rgba.length / 4);
+  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
+    out[p] = ((rgba[i] >> 5) << 5) | ((rgba[i + 1] >> 5) << 2) | (rgba[i + 2] >> 6);
+  }
+  return out;
+}
+
+/**
+ * GIF variable-width LZW. Codes are packed LSB-first.
+ *
+ * The code-size growth point is the subtle part. A GIF decoder adds its table
+ * entries one code behind the encoder (the encoder emits a code *then* adds an
+ * entry; the decoder can only add an entry once it has read the following code).
+ * So the encoder must widen one code later than feels natural — at
+ * next === (1 << codeSize) + 1, not at (1 << codeSize). Bumping any earlier
+ * makes the decoder read the next code at the old width and desync the rest of
+ * the stream, which decodes as garbage from that pixel on.
+ */
+function lzwEncode(indices, minCodeSize) {
+  const clearCode = 1 << minCodeSize;         // 256
+  const eoiCode = clearCode + 1;              // 257
+  let codeSize = minCodeSize + 1;             // 9
+  let next = eoiCode + 1;                     // 258
+  let dict = new Map();
+
+  const out = [];
+  let bitBuf = 0, bitCount = 0;
+  const emit = (code) => {
+    bitBuf |= code << bitCount;
+    bitCount += codeSize;
+    while (bitCount >= 8) { out.push(bitBuf & 0xFF); bitBuf >>= 8; bitCount -= 8; }
+  };
+
+  emit(clearCode);
+  let prefix = indices[0];
+  for (let i = 1; i < indices.length; i++) {
+    const k = indices[i];
+    const key = (prefix << 8) | k;
+    const found = dict.get(key);
+    if (found !== undefined) { prefix = found; continue; }
+
+    emit(prefix);
+    dict.set(key, next);
+    next++;
+    if (next === 4096) {
+      // Table full: every 12-bit code is taken, so flush and start over.
+      emit(clearCode);
+      dict = new Map(); next = eoiCode + 1; codeSize = minCodeSize + 1;
+    } else if (next > (1 << codeSize) && codeSize < 12) {
+      codeSize++;
+    }
+    prefix = k;
+  }
+  emit(prefix);
+  emit(eoiCode);
+  if (bitCount > 0) out.push(bitBuf & 0xFF);
+  return out;
+}
+
+/** Wrap raw LZW bytes in GIF sub-blocks (each ≤ 255 bytes, terminated by 0x00). */
+function subBlocks(bytes) {
+  const out = [];
+  for (let i = 0; i < bytes.length; i += 255) {
+    const chunk = bytes.slice(i, i + 255);
+    out.push(chunk.length, ...chunk);
+  }
+  out.push(0);
+  return out;
+}
+
+/**
+ * Streaming animated-GIF89a builder. Frames are appended one at a time so the
+ * caller can yield to the event loop between them and report real progress.
+ *
+ *   const g = new GifWriter(w, h, delayCs);
+ *   for (const f of frames) { g.addFrame(f); await yieldToPaint(); }
+ *   const blob = g.finish();
+ */
+class GifWriter {
+  constructor(w, h, delayCs) {
+    this.w = w; this.h = h; this.delayCs = delayCs;
+    this.parts = [];                                     // Uint8Array chunks, joined at the end
+
+    const head = [];
+    const u16 = (v) => head.push(v & 0xFF, (v >> 8) & 0xFF);
+    head.push(0x47, 0x49, 0x46, 0x38, 0x39, 0x61);       // "GIF89a"
+    u16(w); u16(h);
+    head.push(0xF7, 0, 0);                               // global table present, 256 entries
+    head.push(...GIF_PALETTE);
+    // NETSCAPE2.0 application extension → loop forever.
+    head.push(0x21, 0xFF, 0x0B, ...Array.from('NETSCAPE2.0', (c) => c.charCodeAt(0)), 3, 1, 0, 0, 0);
+    this.parts.push(new Uint8Array(head));
+  }
+
+  addFrame(indices) {
+    const b = [];
+    const u16 = (v) => b.push(v & 0xFF, (v >> 8) & 0xFF);
+    b.push(0x21, 0xF9, 0x04, 0x00);                      // graphic control extension
+    u16(this.delayCs);
+    b.push(0, 0);
+    b.push(0x2C);                                        // image descriptor
+    u16(0); u16(0); u16(this.w); u16(this.h);
+    b.push(0);                                           // no local table, not interlaced
+    b.push(8);                                           // LZW minimum code size
+    this.parts.push(new Uint8Array(b));
+    this.parts.push(new Uint8Array(subBlocks(lzwEncode(indices, 8))));
+  }
+
+  finish() {
+    this.parts.push(new Uint8Array([0x3B]));             // trailer
+    return new Blob(this.parts, { type: 'image/gif' });
+  }
+}
+
+/* ═══════════════════════════ Export: GIF / WebM ═══════════════════════════ */
+
+const GIF_WIDTH = 600;      // downscaled from the stage — keeps encoding to a few seconds
+const GIF_FPS = 15;
+const GIF_MAX_FRAMES = 100; // ~6.6s of play at 15fps
+
+let capture = { frames: [], recorder: null, chunks: [], tick: 0, scratch: null, sctx: null };
+
+/** Called once per rendered frame while `state.recording` is true. */
+function captureFrame() {
+  if (document.getElementById('exportFormat').value !== 'gif') return;   // WebM taps the stream directly
+  capture.tick++;
+  if (capture.tick % Math.round(60 / GIF_FPS)) return;                   // 60fps loop → 15fps of GIF frames
+  if (capture.frames.length >= GIF_MAX_FRAMES) return;
+
+  // Downscale into a scratch canvas, then quantise. getImageData is far cheaper
+  // than toDataURL and avoids a PNG encode per frame.
+  const { scratch, sctx } = capture;
+  sctx.drawImage(canvas, 0, 0, scratch.width, scratch.height);
+  capture.frames.push(quantize(sctx.getImageData(0, 0, scratch.width, scratch.height).data));
+}
+
+function showOverlay(text, sub) {
+  const o = document.getElementById('overlay');
+  document.getElementById('overlayText').textContent = text;
+  document.getElementById('overlaySub').textContent = sub || '';
+  o.classList.remove('hidden'); o.classList.add('grid');
+}
+function hideOverlay() {
+  const o = document.getElementById('overlay');
+  o.classList.add('hidden'); o.classList.remove('grid');
+}
+
+function download(blobOrUrl, filename) {
+  const a = document.createElement('a');
+  a.href = typeof blobOrUrl === 'string' ? blobOrUrl : URL.createObjectURL(blobOrUrl);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  if (typeof blobOrUrl !== 'string') setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+const slug = () => (document.getElementById('playTitle').value.trim() || 'plotboard-play')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+/**
+ * Reset, replay the whole play at 1.0x while capturing, and download the clip.
+ * Resolves when the play ends (outcome set) or the timeout trips.
+ */
+async function exportPlay() {
+  const hasRoute = OFF_IDS.some((id) => id !== 'QB' && state.routes[id]);
+  if (!hasRoute) return toast('Draw at least one route before exporting.', 'slate');
+
+  const useGif = document.getElementById('exportFormat').value === 'gif';
+
+  const btn = document.getElementById('btnExport');
+  btn.disabled = true;
+  showOverlay('Recording play…', 'Running the simulation once at 1.0x speed.');
+
+  // Force 1.0x for the recording, then restore whatever the user had.
+  const userSpeed = state.speed;
+  state.speed = 1.0;
+  resetPlay();
+
+  // Scratch canvas for downscaling GIF frames off the live stage.
+  const gw = GIF_WIDTH, gh = Math.round(GIF_WIDTH * (canvas.height / canvas.width));
+  const scratch = Object.assign(document.createElement('canvas'), { width: gw, height: gh });
+  capture = { frames: [], recorder: null, chunks: [], tick: 0, scratch, sctx: scratch.getContext('2d', { willReadFrequently: true }) };
+
+  let stream = null;
+  if (!useGif) {
+    stream = canvas.captureStream(60);
+    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+      .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+    capture.recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 6e6 } : undefined);
+    capture.recorder.ondataavailable = (e) => { if (e.data.size) capture.chunks.push(e.data); };
+    capture.recorder.start();
+  }
+
+  state.recording = true;
+  state.playing = true;
+  lastTime = performance.now();
+
+  // Wait for the play to resolve, with a wall-clock ceiling as a backstop.
+  await new Promise((resolve) => {
+    const started = performance.now();
+    const poll = setInterval(() => {
+      const done = !!state.outcome || !state.playing;
+      const expired = performance.now() - started > (PHYS.PLAY_TIMEOUT + 2) * 1000;
+      if (done || expired) { clearInterval(poll); resolve(); }
+    }, 80);
+  });
+
+  // Let the final beat land so the clip doesn't cut on the catch frame.
+  await new Promise((r) => setTimeout(r, 450));
+  state.recording = false;
+  state.playing = false;
+  state.speed = userSpeed;
+  updatePlayButton();
+
+  try {
+    if (useGif) {
+      const total = capture.frames.length;
+      if (!total) throw new Error('no frames captured');
+      showOverlay('Encoding GIF…', `0 / ${total} frames`);
+
+      // One frame per macrotask: LZW is synchronous, so yielding between frames
+      // is what keeps the spinner and the counter actually painting.
+      const writer = new GifWriter(gw, gh, Math.round(100 / GIF_FPS));
+      for (let i = 0; i < total; i++) {
+        writer.addFrame(capture.frames[i]);
+        document.getElementById('overlaySub').textContent = `${i + 1} / ${total} frames`;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      download(writer.finish(), `${slug()}.gif`);
+      toast('GIF downloaded.', 'emerald');
+    } else {
+      const blob = await new Promise((resolve) => {
+        capture.recorder.onstop = () => resolve(new Blob(capture.chunks, { type: 'video/webm' }));
+        capture.recorder.stop();
+      });
+      stream?.getTracks().forEach((t) => t.stop());
+      download(blob, `${slug()}.webm`);
+      toast('Clip downloaded.', 'emerald');
+    }
+  } catch (err) {
+    toast('Export failed: ' + (err.message || 'unknown error'), 'red');
+  } finally {
+    capture.frames = []; capture.chunks = [];
+    hideOverlay();
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnExport').addEventListener('click', exportPlay);
+
+/* ═══════════════════════════ Keyboard shortcuts ═══════════════════════════ */
+window.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, select')) return;
+  if (e.code === 'Space') { e.preventDefault(); document.getElementById('btnPlay').click(); }
+  if (e.key === 'r' || e.key === 'R') document.getElementById('btnReset').click();
+  if (e.key === 'Escape') { state.selected = null; syncUI(); }
+});
+
+/* ═══════════════════════════ Boot ═══════════════════════════ */
+async function init() {
+  resizeCanvas();
+  // ResizeObserver rather than window.resize: it also fires when the stage first
+  // gains a real width (page loaded in a background tab, panel un-collapsed),
+  // which a window-level resize event would never report.
+  new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+  window.addEventListener('resize', resizeCanvas);
+
+  // Restore saved Supabase credentials, if any.
+  const url = localStorage.getItem(LS.url), key = localStorage.getItem(LS.key);
+  if (url && key) {
+    document.getElementById('sbUrl').value = url;
+    document.getElementById('sbKey').value = key;
+    connectSupabase(url, key, true);
+  } else {
+    setCloudBadge(false);
+  }
+
+  applyFormation('shotgun');
+  applyCoverage('man');
+
+  // Ship a sensible demo so the board is never empty on first load.
+  state.routes.WR1 = buildPreset('go', state.players.WR1);
+  state.routes.WR2 = buildPreset('slant', state.players.WR2);
+  state.routes.TE  = buildPreset('curl', state.players.TE);
+  state.passTarget = pointAtDistance(state.routes.WR2, pathLength(state.routes.WR2) * 0.92);
+  state.passTarget = { x: state.passTarget.x, y: state.passTarget.y };
+  resetPlay(); syncUI();
+
+  await loadFromUrl();
+  requestAnimationFrame(loop);
+}
+
+init();
+</script>
+</body>
+</html>
