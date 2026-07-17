@@ -8,8 +8,16 @@ import { flattenPath, pointAtT } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
 import { History, restore, snapshot, type Snapshot } from "@/lib/history";
 import { loadPlayLocal, savePlayLocal } from "@/lib/localPlays";
+import { playNameSlug, resolvePlayName } from "@/lib/playName";
 import { serializePlayState } from "@/lib/playSchema";
 import { buildPresetRoute } from "@/lib/routePresets";
+import {
+  deleteSavedPlay,
+  listSavedPlays,
+  loadSavedPlay,
+  saveNamedPlay,
+  type SavedPlaySummary,
+} from "@/lib/savedPlays";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import type {
   CoverageId,
@@ -20,6 +28,8 @@ import type {
 } from "@/lib/types";
 import FieldCanvas from "./FieldCanvas";
 import LeftPanel from "./LeftPanel";
+import NamePlayDialog from "./NamePlayDialog";
+import PlayNameBar from "./PlayNameBar";
 import RightPanel, { type ActionState } from "./RightPanel";
 
 /**
@@ -45,6 +55,9 @@ export function createDefaultPlay(): PlayState {
   const spot = pointAtT(path, 0.75);
 
   return {
+    // Unnamed: the default name carries a timestamp, so materialising one here
+    // would differ between the server render and the client and break hydration.
+    name: "",
     formation: "spread",
     defenseFormation: "4-3",
     coverage: "man",
@@ -78,6 +91,14 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [transitionId, setTransitionId] = useState(0);
   const [shareState, setShareState] = useState<ActionState>({ status: "idle" });
   const [exportState, setExportState] = useState<ActionState>({ status: "idle" });
+  const [saveState, setSaveState] = useState<ActionState>({ status: "idle" });
+
+  // The play library lives in localStorage, which does not exist during SSR, so
+  // it is read after mount and mirrored here.
+  const [savedPlays, setSavedPlays] = useState<SavedPlaySummary[]>([]);
+  /** Which library entry is on the board, so the list can show what's loaded. */
+  const [activeSavedId, setActiveSavedId] = useState<string | null>(null);
+  const [gifDialogOpen, setGifDialogOpen] = useState(false);
 
   const historyRef = useRef(new History());
   // History lives outside React, so its availability is mirrored into state.
@@ -154,7 +175,66 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
       setMissingShare(true);
     }
   }, [fallbackId, initialPlay, syncHistory]);
+
+  /*
+   * The saved play library, read once on mount. Same reasoning as above: this
+   * is an external store that does not exist on the server, so it cannot seed
+   * `useState` without desyncing hydration.
+   */
+  useEffect(() => {
+    setSavedPlays(listSavedPlays());
+  }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  /** Writes the current play into the library under the name in the input. */
+  const onSavePlay = () => {
+    const name = resolvePlayName(play.name);
+    const result = saveNamedPlay(play, name);
+
+    if (!result.ok) {
+      setSaveState({ status: "error", message: result.error });
+      return;
+    }
+
+    // A blank input resolved to a default name; show the user what it is called
+    // now rather than leaving the field looking empty.
+    if (play.name !== name) setPlay({ ...play, name });
+
+    setSavedPlays(listSavedPlays());
+    setActiveSavedId(result.saved.id);
+    setSaveState({ status: "done", message: `Saved as "${name}".` });
+  };
+
+  const onLoadSaved = (id: string) => {
+    const loaded = loadSavedPlay(id);
+    if (!loaded) {
+      // The entry failed validation on read and was dropped from the library.
+      setSavedPlays(listSavedPlays());
+      setSaveState({ status: "error", message: "That saved play could not be loaded." });
+      return;
+    }
+
+    setPlay(loaded);
+    setSelectedId(null);
+    setIsPlaying(false);
+    setActiveSavedId(id);
+    // A different play is a different history: the old stack's snapshots
+    // describe a board that is no longer on screen.
+    historyRef.current.clear();
+    syncHistory();
+    setResetId((v) => v + 1);
+    setTransitionId((v) => v + 1);
+    setSaveState({ status: "done", message: `Loaded "${loaded.name}".` });
+  };
+
+  const onDeleteSaved = (id: string) => {
+    deleteSavedPlay(id);
+    setSavedPlays(listSavedPlays());
+    // Deleting the loaded play leaves it on the board; it is just no longer
+    // backed by a library entry.
+    if (activeSavedId === id) setActiveSavedId(null);
+    setSaveState({ status: "idle" });
+  };
 
   /**
    * Rebuilds the roster for a formation pair. A new formation moves everyone,
@@ -294,13 +374,22 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const onShare = async () => {
     setShareState({ status: "busy", message: "Saving play…" });
 
+    // Every path that persists a play names it, so a shared link always arrives
+    // with something in the recipient's name field.
+    const name = resolvePlayName(play.name);
+    const named: PlayState = { ...play, name };
+    if (play.name !== name) setPlay(named);
+
     let remoteError: string | null = null;
     try {
-      const result = await sharePlay(serializePlayState(play));
+      const result = await sharePlay(serializePlayState(named));
       if (result.ok) {
         const url = `${window.location.origin}/play/${result.id}`;
         const copied = await copy(url);
-        setShareState({ status: "done", message: `${copied ? "Link copied" : "Saved"} — ${url}` });
+        setShareState({
+          status: "done",
+          message: `${copied ? "Link copied" : "Saved"} "${name}" — ${url}`,
+        });
         return;
       }
       remoteError = result.error;
@@ -311,7 +400,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     // The database write failed. Save locally rather than lose the play — the
     // link still works, just only in this browser.
     try {
-      const id = savePlayLocal(play);
+      const id = savePlayLocal(named);
       const url = `${window.location.origin}/play/${id}`;
       const copied = await copy(url);
       setShareState({
@@ -325,16 +414,33 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     }
   };
 
-  const onExport = async () => {
+  /** Opens the naming step. The export itself runs from `onExportConfirmed`. */
+  const onExport = () => {
     setIsPlaying(false);
+    setGifDialogOpen(true);
+  };
+
+  /**
+   * `rawName` is straight from the dialog: blank (including from Skip) resolves
+   * to the default name rather than cancelling.
+   */
+  const onExportConfirmed = async (rawName: string) => {
+    setGifDialogOpen(false);
+    const name = resolvePlayName(rawName);
+
+    // The name the user settled on in the dialog is the play's name now — it
+    // would be strange for the GIF and the board to disagree.
+    const named: PlayState = { ...play, name };
+    if (play.name !== name) setPlay(named);
+
     setResetId((v) => v + 1);
     setExportState({ status: "busy", message: "Recording frames…" });
     try {
-      const blob = await recordPlayGif(play, (p) => {
+      const blob = await recordPlayGif(named, (p) => {
         setExportState({ status: "busy", message: `Rendering… ${Math.round(p * 100)}%` });
       });
-      downloadBlob(blob, `plotboard-${play.formation}-${Date.now()}.gif`);
-      setExportState({ status: "done", message: "GIF downloaded." });
+      downloadBlob(blob, `${playNameSlug(name)}.gif`);
+      setExportState({ status: "done", message: `Downloaded "${playNameSlug(name)}.gif".` });
     } catch (err) {
       setExportState({
         status: "error",
@@ -381,6 +487,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         />
 
         <main className="flex flex-col gap-3">
+          <PlayNameBar
+            name={play.name}
+            disabled={isExporting}
+            onName={(name) => setPlay({ ...play, name })}
+            onSave={onSavePlay}
+          />
+
           {missingShare && (
             <div className="border border-[#4B5563] bg-[#1F2937] px-3 py-2 text-[12px] text-[#FCA5A5]">
               That shared play isn&apos;t in the database, and isn&apos;t saved in this browser.
@@ -439,8 +552,20 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           onRedo={redo}
           onShare={onShare}
           onExport={onExport}
+          saveState={saveState}
+          savedPlays={savedPlays}
+          activeSavedId={activeSavedId}
+          onLoadSaved={onLoadSaved}
+          onDeleteSaved={onDeleteSaved}
         />
       </div>
+
+      <NamePlayDialog
+        open={gifDialogOpen}
+        initialName={play.name}
+        onConfirm={onExportConfirmed}
+        onCancel={() => setGifDialogOpen(false)}
+      />
     </div>
   );
 }

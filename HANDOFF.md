@@ -49,11 +49,18 @@ npm run dev          # http://localhost:3000
   it does. `.env.local` carries the URL and publishable key, `GET /rest/v1/plays`
   answers `200`, and Share writes a real row, returns a `/play/<uuid>` link, and
   that link resolves **server-side** with the full current schema
-  (`formation`, `defenseFormation`, `losX`, all 14 players). The `localStorage`
-  fallback is still there for when the write fails; it is no longer the normal
-  path. If you clone this fresh and Share is disabled, you are missing
-  `.env.local` — and if the table is missing, run
+  (`formation`, `defenseFormation`, `losX`, `name`, all 14 players). The
+  `localStorage` fallback is still there for when the write fails; it is no
+  longer the normal path. If you clone this fresh and Share is disabled, you are
+  missing `.env.local` — and if the table is missing, run
   [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL editor.
+- **`supabase/schema.sql` does not match the deployed table.** The file declares
+  a `name text` column; the live table has only `id`, `created_at`, `data`. It
+  predates the file. This is a live tripwire: inserting `name` fails the *whole*
+  row with PostgREST `PGRST204` and silently drops every share onto the
+  localStorage fallback. `sharePlay` therefore writes `data` only, and the
+  play's name rides inside that JSON. Don't "fix" the insert to use the column
+  without first confirming it exists on the deployed table.
 - **The original brief was truncated in delivery.** Its "Section 5 — Handoff
   Protocol & Next.js Architecture" never arrived, twice. The Supabase layout here
   is an inference from `@supabase/ssr` conventions, reconciled after the fact
@@ -96,7 +103,9 @@ src/
     render.ts             All canvas drawing                       <- no mutation
     history.ts            Undo/redo over snapshots
     playSchema.ts         Validation at the trust boundary
-    localPlays.ts         localStorage fallback for sharing
+    playName.ts           Naming rules: defaults, trimming, filename slugs
+    localPlays.ts         localStorage fallback for sharing (keyed by share id)
+    savedPlays.ts         The user's named play library (list/load/delete)
     gif.ts                Offscreen replay + gifshot encoding
     supabase/             Browser + server clients, env access
 scripts/
@@ -138,6 +147,14 @@ Things that will bite you if you don't know them:
   the move-vs-draw bug; don't reintroduce a heuristic.
 - **No glows. Still.** The boundary warning is a flat red *ring*, not a glow,
   because the brief that asked for it did not know about this rule.
+- **A play's `name` may be empty, and the default is never stored.** The default
+  is a timestamp, so materialising it during render would produce different
+  markup on the server and the client and break hydration. `resolvePlayName`
+  turns "" into `Untitled Play - <when>` and is only ever called from an event
+  handler — at save, export, or share. Keep it that way.
+- **Two localStorage modules that look alike but aren't.** `localPlays.ts` is
+  the invisible fallback for a failed *share*, keyed by the share id in the URL.
+  `savedPlays.ts` is the user's named library. Don't merge them.
 - **The field is cached** to an offscreen canvas and blitted (`background` in
   `SceneOptions`), rather than re-stroking ~400 hash marks per frame.
 - **Pointer interaction** is a small state machine on `interactionRef`
@@ -184,13 +201,26 @@ Things that will bite you if you don't know them:
 - **Undo/redo** over snapshots (alignments, routes, pass target, *and* the line
   of scrimmage). **Shortcuts**: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z, Space =
   play/pause, R = reset, D = toggle Draw Route Mode, Esc = deselect.
+- **Naming and a saved play library**. A name input sits at the top of the field
+  with a Save Play button (Enter saves). Saved plays go to `localStorage` and are
+  listed in "My Saved Plays" in the right panel, newest first, each loadable by
+  name and deletable. Saving under an existing name **overwrites** it rather than
+  accumulating entries the user cannot tell apart. Loading clears the undo stack,
+  because the old snapshots describe a board that is no longer on screen.
 - **Save & Share**: Server Action → Supabase → `/play/<id>`, resolved
-  server-side. **On any failure it falls back to `localStorage`** so work is never
-  lost; `/play/[id]` deliberately does **not** 404 on a database miss — it renders
-  the board and retries against local storage on mount, and only then reports the
-  play missing.
+  server-side, with the play's name in the payload so the recipient's name input
+  is populated by the server render. **On any failure it falls back to
+  `localStorage`** so work is never lost; `/play/[id]` deliberately does **not**
+  404 on a database miss — it renders the board and retries against local storage
+  on mount, and only then reports the play missing.
 - **GIF export**: deterministic offscreen replay at a fixed timestep (not
   screen-scraping), so a slow machine produces the same GIF as a fast one.
+  Export goes through a naming dialog first; the name becomes the filename
+  (`vertical-cross.gif`). **"Skip" is not "Cancel"** — skipping still exports,
+  under the default name, which is what the brief specified. Escape, the
+  backdrop and Cancel abort outright, which the brief did not specify but a
+  dialog with no way out is a trap. The name is *not* written into GIF metadata:
+  gifshot exposes no way to set a GIF comment extension.
 - **Retina**: backing store sized by `devicePixelRatio`, drawing in CSS pixels.
 - **Boots with a demo play** (Go/Slant/Curl + a placed target) so the board is
   never empty — intentional, not leftover debug state.
@@ -228,7 +258,7 @@ size. Leaving it on roughly quadruples the file (measured: 2.0 MB → 517 KB).
 
 ## 6. How this was verified
 
-**`npm run verify` — 95 headless assertions.** This closes the "no automated
+**`npm run verify` — 114 headless assertions.** This closes the "no automated
 tests" gap the previous handoff called its top infrastructure priority (§8).
 Covers: path length/nearest-point math, preset mirroring, release timing, arc
 monotonicity, ball landing on target, outcome agreeing with the nearest player,
@@ -245,6 +275,10 @@ boundaries and still respects the field edges; the formation follows the line;
 a play from a moved line still resolves; undo restores `losX`; and old share
 links still parse (the pre-rename `shotgun-spread` id maps forward, and a
 payload with no `losX`/`defenseFormation` defaults rather than being rejected).
+
+Added with play naming: the default/trim/cap rules, that the cap agrees with the
+schema (so a name you can type is a name that parses back), filename slugging
+including the "all punctuation" case, and that an unnamed play stays valid.
 
 Browser-side, verified by sampling canvas pixels and driving synthetic
 `PointerEvent`s: exact palette values (grass reads `20,83,45` = `#14532D`), player
@@ -278,6 +312,11 @@ gifshot loads (see §5). If you have a real browser, just look at it.
   repositioned. Now `drawMode` decides once at `pointerdown` (see §3). Note this
   reversed an earlier change that had made a selected player's drag *draw* — the
   toggle is the design that stuck.
+- **Writing the play name to a Supabase column broke every share.** The `name`
+  column is in `schema.sql` but not on the deployed table, so the insert failed
+  with `PGRST204` and the fallback quietly caught it — the feature looked fine
+  while never touching the database. Caught by reading the share status text
+  rather than trusting the click. See §2.
 - **A formation change could strand players at their old alignment.** The
   transition eases on `requestAnimationFrame`; in a tab that never composites
   (see §6) no frame ever arrives, so the first paint at `f≈0` was also the last.
@@ -323,7 +362,13 @@ gifshot loads (see §5). If you have a real browser, just look at it.
   who loads the page. Add auth and scope to `auth.uid()` before it holds anything
   real.
 - **`npm run verify` covers the sim, not the UI.** Component/interaction tests
-  don't exist; the browser checks in §6 were ad hoc.
+  don't exist; the browser checks in §6 were ad hoc. In particular
+  `savedPlays.ts` has no headless coverage — it needs a `localStorage`, so it was
+  verified by driving the real browser and reading the store back.
+- **The saved play library is per-browser and unsynced.** It is `localStorage`,
+  so it does not follow the user to another device, and clearing site data loses
+  it. Saving is capped at 100 plays and a full quota surfaces as an error rather
+  than failing silently, but there is no export/import.
 
 ## 9. Possible next steps (options, not a queue)
 

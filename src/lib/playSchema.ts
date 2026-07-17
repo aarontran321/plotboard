@@ -1,4 +1,5 @@
 import { FIELD_LENGTH, FIELD_WIDTH, LOS_MAX_X, LOS_MIN_X, LOS_X } from "./field";
+import { MAX_PLAY_NAME_LENGTH } from "./playName";
 import type {
   CoverageId,
   DefenseFormationId,
@@ -81,6 +82,15 @@ export function parsePlayState(input: unknown): PlayState | null {
     losX = input.losX;
   }
 
+  // An unnamed play is legitimate — the default name is derived at the point of
+  // use, not stored — so absent and empty both mean "unnamed". A name that is
+  // present but not a string, or over the cap, is malformed.
+  let name = "";
+  if (input.name !== undefined && input.name !== null) {
+    if (typeof input.name !== "string" || input.name.length > MAX_PLAY_NAME_LENGTH) return null;
+    name = input.name;
+  }
+
   if (!Array.isArray(input.players) || input.players.length === 0) return null;
   if (input.players.length > MAX_PLAYERS) return null;
 
@@ -128,6 +138,7 @@ export function parsePlayState(input: unknown): PlayState | null {
   }
 
   return {
+    name,
     formation,
     defenseFormation,
     coverage: coverage as CoverageId,
@@ -141,6 +152,7 @@ export function parsePlayState(input: unknown): PlayState | null {
 /** Strips the play down to exactly the fields that get persisted. */
 export function serializePlayState(play: PlayState) {
   return {
+    name: play.name,
     formation: play.formation,
     defenseFormation: play.defenseFormation,
     coverage: play.coverage,

@@ -50,6 +50,13 @@ export interface PassTarget {
  * for undo/redo and serialized to the database.
  */
 export interface PlayState {
+  /**
+   * The play's name. Empty means the user has not named it; a display name is
+   * only materialised at the point it is needed (save, export, share) via
+   * `resolvePlayName`, never during render — a timestamped default computed in
+   * render would differ between server and client and break hydration.
+   */
+  name: string;
   formation: FormationId;
   defenseFormation: DefenseFormationId;
   coverage: CoverageId;

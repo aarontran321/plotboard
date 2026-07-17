@@ -20,6 +20,12 @@ import {
 import { buildFormation, manAssignments } from "../src/lib/formations";
 import { flattenPath, nearestOnPath } from "../src/lib/geometry";
 import { History, restore, snapshot } from "../src/lib/history";
+import {
+  MAX_PLAY_NAME_LENGTH,
+  defaultPlayName,
+  playNameSlug,
+  resolvePlayName,
+} from "../src/lib/playName";
 import { parsePlayState } from "../src/lib/playSchema";
 import { buildPresetRoute } from "../src/lib/routePresets";
 import { createContext, createInitialSim, routeProgress, stepSim } from "../src/lib/simulation";
@@ -62,6 +68,7 @@ function buildTestPlay(coverage: CoverageId = "man"): PlayState {
   const aim = nearestOnPath(path, path.pts[Math.floor(path.pts.length * 0.75)]);
 
   return {
+    name: "Test Slant",
     formation: "spread",
     defenseFormation: "4-3",
     coverage,
@@ -391,6 +398,7 @@ section("Defensive AI");
 
   // Zone: with no receiver threatening it, a defender sits on its landmark.
   const bare: PlayState = {
+    name: "",
     formation: "spread",
     defenseFormation: "4-3",
     coverage: "cover-3",
@@ -484,6 +492,38 @@ section("Undo / redo");
   check("undo restores the line of scrimmage", restore(atSeventy, back!).losX === LOS_X);
 }
 
+// --- Play naming ---------------------------------------------------------
+
+section("Play naming");
+{
+  check("a typed name is kept", resolvePlayName("Vertical Cross") === "Vertical Cross");
+  check("a name is trimmed", resolvePlayName("  Flex Offense  ") === "Flex Offense");
+
+  // Blank, whitespace-only, null and undefined all mean "not named".
+  const fixed = new Date(2026, 0, 2, 3, 4);
+  const expected = defaultPlayName(fixed);
+  check("a blank name falls back to the default", resolvePlayName("", fixed) === expected);
+  check("whitespace only falls back to the default", resolvePlayName("   ", fixed) === expected);
+  check("null falls back to the default", resolvePlayName(null, fixed) === expected);
+  check("undefined falls back to the default", resolvePlayName(undefined, fixed) === expected);
+  check("the default name is marked untitled", expected.startsWith("Untitled Play - "));
+  check(
+    "the default name carries a timestamp",
+    defaultPlayName(new Date(2026, 5, 6, 7, 8)) !== expected
+  );
+
+  // The cap has to hold here as well as at the schema, or saving a long name
+  // would produce a play the schema then rejects on read.
+  const long = "x".repeat(200);
+  check("a long name is capped", resolvePlayName(long).length === MAX_PLAY_NAME_LENGTH);
+  check("a capped name still parses", parsePlayState({ ...buildTestPlay(), name: resolvePlayName(long) }) !== null);
+
+  check("a slug is filename safe", playNameSlug("Vertical Cross!") === "vertical-cross");
+  check("a slug collapses punctuation", playNameSlug("Flex — Offense (v2)") === "flex-offense-v2");
+  check("a slug never ends up empty", playNameSlug("!!!") === "play");
+  check("a slug has no leading or trailing dashes", !/^-|-$/.test(playNameSlug("  --Go--  ")));
+}
+
 // --- Schema validation ---------------------------------------------------
 
 section("Schema validation");
@@ -496,6 +536,7 @@ section("Schema validation");
 
   check("round-trip preserves the line of scrimmage", round?.losX === play.losX);
   check("round-trip preserves the defensive formation", round?.defenseFormation === "4-3");
+  check("round-trip preserves the play name", round?.name === "Test Slant");
 
   const bad: [string, unknown][] = [
     ["null", null],
@@ -512,6 +553,8 @@ section("Schema validation");
     ["a line of scrimmage in the endzone", { ...play, losX: 2 }],
     ["a line of scrimmage past the far limit", { ...play, losX: LOS_MAX_X + 5 }],
     ["a NaN line of scrimmage", { ...play, losX: NaN }],
+    ["a non-string play name", { ...play, name: 42 }],
+    ["an oversized play name", { ...play, name: "x".repeat(MAX_PLAY_NAME_LENGTH + 1) }],
   ];
   for (const [label, value] of bad) {
     check(`rejects ${label}`, parsePlayState(value) === null);
@@ -525,10 +568,15 @@ section("Schema validation");
   const noExtras: Record<string, unknown> = { ...play };
   delete noExtras.losX;
   delete noExtras.defenseFormation;
+  delete noExtras.name;
   const older = parsePlayState(noExtras);
   check("accepts a play saved before the line of scrimmage moved", older !== null);
   check("defaults a missing line of scrimmage", older?.losX === LOS_X);
   check("defaults a missing defensive formation", older?.defenseFormation === "4-3");
+  // An unnamed play is valid: the default is derived at the point of use, so a
+  // link shared before plays had names must not be rejected for lacking one.
+  check("accepts a play with no name", older?.name === "");
+  check("accepts an explicitly empty name", parsePlayState({ ...play, name: "" })?.name === "");
 
   // A payload built to be huge must not be accepted.
   const huge = { ...play, routes: { WR1: Array.from({ length: 5000 }, () => ({ x: 1, y: 1 })) } };

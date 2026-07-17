@@ -19,6 +19,12 @@ export async function sharePlay(input: unknown): Promise<ShareResult> {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("plays")
+      // The play's name rides inside `data`, deliberately, and is *not* written
+      // to the table's `name` column. That column exists in schema.sql but not
+      // on the deployed table, which predates it — writing to it fails the
+      // whole insert with PGRST204 and drops every share onto the localStorage
+      // fallback. `data` is the source of truth either way, so depending on the
+      // column buys nothing and costs the feature.
       .insert({ data: serializePlayState(play) })
       .select("id")
       .single();

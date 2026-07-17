@@ -1,7 +1,9 @@
 "use client";
 
 import { ROUTE_PRESET_LABELS } from "@/lib/routePresets";
+import type { SavedPlaySummary } from "@/lib/savedPlays";
 import type { PlayerDef, RoutePresetId } from "@/lib/types";
+import SavedPlaysList from "./SavedPlaysList";
 import { Button, Panel, Section } from "./ui";
 
 export type ActionState =
@@ -28,6 +30,11 @@ interface Props {
   onRedo: () => void;
   onShare: () => void;
   onExport: () => void;
+  saveState: ActionState;
+  savedPlays: SavedPlaySummary[];
+  activeSavedId: string | null;
+  onLoadSaved: (id: string) => void;
+  onDeleteSaved: (id: string) => void;
 }
 
 const PRESETS = Object.keys(ROUTE_PRESET_LABELS) as RoutePresetId[];
@@ -62,6 +69,11 @@ export default function RightPanel({
   onRedo,
   onShare,
   onExport,
+  saveState,
+  savedPlays,
+  activeSavedId,
+  onLoadSaved,
+  onDeleteSaved,
 }: Props) {
   const isQB = selected?.id === "QB";
   // Routes are an offensive concept; the defense runs its coverage instead.
@@ -117,6 +129,17 @@ export default function RightPanel({
             Reset All Routes
           </Button>
         </div>
+      </Section>
+
+      <Section title="My Saved Plays">
+        <SavedPlaysList
+          plays={savedPlays}
+          activeId={activeSavedId}
+          disabled={disabled}
+          onLoad={onLoadSaved}
+          onDelete={onDeleteSaved}
+        />
+        <Status state={saveState} />
       </Section>
 
       <Section title="Undo / Redo">
