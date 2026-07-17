@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/*
+ * PlotBoard is a single-purpose dark tactical workspace. It does not follow the
+ * OS light/dark preference, so the palette is fixed rather than media-queried.
+ */
+body {
+  background: #0b0f19;
+  color: #e5e7eb;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Flat, square slider thumb to match the rest of the controls. */
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #2563eb;
+  border: 1px solid #3b82f6;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #2563eb;
+  border: 1px solid #3b82f6;
+  border-radius: 0;
+  cursor: pointer;
+}
