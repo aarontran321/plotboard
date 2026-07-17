@@ -14,11 +14,19 @@ import {
  *
  * Panels sit a step lighter than the page background and read as physically
  * raised, frosted-glass surfaces (translucent fill + blur + soft shadow +
- * a hairline border). Buttons carry a subtle gradient and lift/glow on
- * hover; toggled-on state uses a vibrant accent rather than a plain fill.
- * Dropdowns and text inputs drop the fully-boxed chrome for a minimal
- * underline, so the workspace reads as controls floating over the field
- * rather than a form.
+ * a hairline border). Dropdowns and text inputs drop the fully-boxed chrome
+ * for a minimal underline, so the workspace reads as controls floating over
+ * the field rather than a form.
+ *
+ * Buttons follow a strict 3-tier hierarchy, deliberately: exactly one button
+ * anywhere on screen at a time may claim Tier 1 (`variant="primary"` — a
+ * solid accent block). Everything else is Tier 2 (`variant="default"` — a
+ * thin outline that fades to slate on hover) or Tier 3 (`variant="danger"` —
+ * a muted outline that only turns vibrant red on hover, for destructive
+ * actions that shouldn't scream at rest). A toggled-on state (`active`) is
+ * neither: it's a ring-and-matte treatment in the same sky/blue accent
+ * family, so "this mode is on" reads distinctly from "click this to act."
+ * No neon green anywhere — it fought with the turf.
  */
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -94,24 +102,87 @@ export function Button({
 }: ButtonProps) {
   const base =
     "rounded-lg px-3 py-2 text-[13px] font-medium border select-none cursor-pointer " +
-    "transition-[transform,box-shadow,background-color,border-color] duration-150 " +
-    "enabled:hover:-translate-y-px enabled:active:translate-y-0 enabled:hover:scale-[1.02] " +
-    "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:translate-y-0 " +
-    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38BDF8]";
+    "transition-all duration-200 ease-in-out " +
+    "disabled:opacity-40 disabled:cursor-not-allowed " +
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
 
+  // A toggled-on mode reads as "this is active", not "click me" — a matte
+  // fill with a glowing accent ring, kept deliberately distinct from Tier 1's
+  // solid block so the two never compete for the same visual weight.
   const palette = active
-    ? "border-emerald-400/50 bg-gradient-to-b from-emerald-400 to-emerald-600 text-white " +
-      "shadow-[0_0_0_1px_rgba(52,211,153,0.25),0_0_18px_rgba(16,185,129,0.45)]"
+    ? "border-sky-400/50 bg-slate-800/90 text-white ring-2 ring-sky-400/70 ring-offset-2 ring-offset-[#0a0e17] " +
+      "shadow-[0_0_16px_rgba(56,189,248,0.28)]"
     : variant === "primary"
-      ? "border-sky-400/40 bg-gradient-to-b from-sky-400 to-blue-600 text-white " +
-        "shadow-[0_4px_14px_-2px_rgba(14,165,233,0.5)] enabled:hover:shadow-[0_4px_20px_-2px_rgba(14,165,233,0.7)]"
+      ? // Tier 1 — reserved for exactly one button at a time anywhere on screen.
+        "border-sky-400/40 bg-sky-500 text-white shadow-[0_4px_14px_-2px_rgba(14,165,233,0.45)] " +
+        "enabled:hover:bg-sky-400 enabled:hover:shadow-[0_4px_20px_-2px_rgba(14,165,233,0.65)]"
       : variant === "danger"
-        ? "border-rose-500/30 bg-gradient-to-b from-[#3A1F27] to-[#2A161C] text-[#FCA5A5] " +
-          "enabled:hover:from-[#47232C] enabled:hover:to-[#331A21] enabled:hover:shadow-[0_0_14px_rgba(244,63,94,0.25)]"
-        : "border-white/[0.08] bg-gradient-to-b from-[#232E45] to-[#1A2336] text-[#E5E7EB] " +
-          "enabled:hover:from-[#2B3752] enabled:hover:to-[#202B42] enabled:hover:border-white/[0.14]";
+        ? // Tier 3 — muted at rest, only turns vibrant on hover/confirmation.
+          "border-rose-900/50 bg-transparent text-rose-400/75 " +
+          "enabled:hover:border-rose-500 enabled:hover:bg-rose-950/30 enabled:hover:text-rose-300"
+        : // Tier 2 — the default for everything else: an outline that fades
+          // to slate on hover, never competing with Tier 1 for attention.
+          "border-slate-700 bg-transparent text-[#CBD5E1] " +
+          "enabled:hover:bg-slate-800/60 enabled:hover:border-slate-600";
 
   return <button className={`${base} ${palette} ${className}`} {...props} />;
+}
+
+/** A single option within a `Segmented` control. */
+export interface SegmentedOption<T extends string> {
+  value: T;
+  label: ReactNode;
+}
+
+/**
+ * A compact segmented control for a small fixed set of choices (2-3), so the
+ * user can tap directly to the option they want instead of opening a
+ * dropdown. The active segment gets Tier 1's solid accent fill; the rest sit
+ * flush and transparent until hovered.
+ */
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  disabled = false,
+  ariaLabel,
+}: {
+  value: T;
+  options: SegmentedOption<T>[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+  ariaLabel?: string;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className="inline-flex w-full gap-0.5 rounded-lg border border-white/[0.07] bg-[#0F172A]/60 p-1"
+    >
+      {options.map((opt) => {
+        const isActive = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            disabled={disabled}
+            onClick={() => onChange(opt.value)}
+            className={
+              "flex-1 cursor-pointer rounded-md px-2 py-1.5 text-[12.5px] font-medium transition-all duration-200 ease-in-out " +
+              "disabled:cursor-not-allowed disabled:opacity-40 " +
+              (isActive
+                ? "bg-sky-500 text-white shadow-[0_2px_8px_-1px_rgba(14,165,233,0.5)]"
+                : "text-[#7C8AA5] enabled:hover:bg-white/[0.05] enabled:hover:text-[#E5E7EB]")
+            }
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -129,9 +200,9 @@ export function Select({ className = "", children, ...props }: SelectHTMLAttribu
   return (
     <select
       className={
-        "w-full cursor-pointer appearance-none border-0 border-b-[1.5px] border-[#2A3550] bg-transparent " +
-        "px-0.5 py-2 pr-6 text-[13px] font-medium text-[#E5E7EB] transition-colors duration-150 " +
-        "hover:enabled:border-[#3E4A6B] focus:border-[#38BDF8] focus:outline-none " +
+        "w-full cursor-pointer appearance-none border-0 border-b-[1.5px] border-slate-700/50 bg-transparent " +
+        "px-0.5 py-2 pr-6 text-[13px] font-medium text-[#E5E7EB] transition-all duration-200 ease-in-out " +
+        "hover:enabled:border-slate-500/70 focus:border-b-2 focus:border-sky-400 focus:outline-none " +
         "disabled:cursor-not-allowed disabled:opacity-40 " +
         className
       }
@@ -154,9 +225,9 @@ export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLIn
       <input
         ref={ref}
         className={
-          "w-full min-w-0 border-0 border-b-[1.5px] border-[#2A3550] bg-transparent px-0.5 py-2 " +
-          "text-[13px] text-[#E5E7EB] transition-colors duration-150 placeholder:text-[#4B5875] " +
-          "hover:enabled:border-[#3E4A6B] focus:border-[#38BDF8] focus:outline-none " +
+          "w-full min-w-0 border-0 border-b-[1.5px] border-slate-700/50 bg-transparent px-0.5 py-2 " +
+          "text-[13px] text-[#E5E7EB] transition-all duration-200 ease-in-out placeholder:text-[#4B5875] " +
+          "hover:enabled:border-slate-500/70 focus:border-b-2 focus:border-sky-400 focus:outline-none " +
           "disabled:cursor-not-allowed disabled:opacity-40 " +
           className
         }

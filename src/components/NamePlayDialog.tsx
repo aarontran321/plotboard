@@ -116,7 +116,6 @@ export default function NamePlayDialog({ open, initialName, onConfirm, onCancel 
           }}
           aria-label="Play name"
           placeholder="Untitled Play"
-          className="!border-b-2"
         />
 
         <div className="flex justify-end gap-1.5">

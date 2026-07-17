@@ -7,7 +7,7 @@ import {
   FORMATION_LABELS,
 } from "@/lib/formations";
 import type { CoverageId, DefenseFormationId, FormationId } from "@/lib/types";
-import { Badge, Button, Panel, Section, Select } from "./ui";
+import { Badge, Panel, Section, Segmented, Select } from "./ui";
 
 interface Props {
   formation: FormationId;
@@ -77,29 +77,26 @@ export default function LeftPanel({
       </Section>
 
       <Section title="Defensive Coverage">
-        <Select
+        <Segmented
           value={coverage}
           disabled={disabled}
-          aria-label="Defensive coverage"
-          onChange={(e) => onCoverage(e.target.value as CoverageId)}
-        >
-          {COVERAGES.map((c) => (
-            <option key={c} value={c}>
-              {COVERAGE_LABELS[c]}
-            </option>
-          ))}
-        </Select>
+          ariaLabel="Defensive coverage"
+          onChange={onCoverage}
+          options={COVERAGES.map((c) => ({ value: c, label: COVERAGE_LABELS[c] }))}
+        />
       </Section>
 
       <Section title="Tool">
-        <Button
-          active={drawMode}
+        <Segmented
+          value={drawMode ? "draw" : "move"}
           disabled={disabled}
-          onClick={() => onDrawMode(!drawMode)}
-          aria-pressed={drawMode}
-        >
-          {drawMode ? "Draw Route Mode: On" : "Draw Route Mode: Off"}
-        </Button>
+          ariaLabel="Interaction tool"
+          onChange={(v) => onDrawMode(v === "draw")}
+          options={[
+            { value: "move", label: "Move Players" },
+            { value: "draw", label: "Draw Routes" },
+          ]}
+        />
         <p className="text-[11px] leading-snug text-[#7C8AA5]">
           {drawMode
             ? "Drag from a selected offensive player to draw their route. Press D to go back to moving players."
@@ -108,24 +105,16 @@ export default function LeftPanel({
       </Section>
 
       <Section title="Field Style">
-        <div className="grid grid-cols-2 gap-1.5">
-          <Button
-            active={theme === "turf"}
-            disabled={disabled}
-            onClick={() => onTheme("turf")}
-            aria-pressed={theme === "turf"}
-          >
-            Turf
-          </Button>
-          <Button
-            active={theme === "chalkboard"}
-            disabled={disabled}
-            onClick={() => onTheme("chalkboard")}
-            aria-pressed={theme === "chalkboard"}
-          >
-            Chalkboard
-          </Button>
-        </div>
+        <Segmented
+          value={theme}
+          disabled={disabled}
+          ariaLabel="Field style"
+          onChange={onTheme}
+          options={[
+            { value: "turf", label: "Turf" },
+            { value: "chalkboard", label: "Chalkboard" },
+          ]}
+        />
       </Section>
 
       <Section title="Simulation Speed">

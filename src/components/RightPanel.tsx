@@ -183,8 +183,9 @@ export default function RightPanel({
       </Section>
 
       <Section title="Save &amp; Share">
+        {/* Tier 2, deliberately: Save Play (in the bar above the field) is
+            the interface's one Tier 1 button. Share is a secondary action. */}
         <Button
-          variant="primary"
           disabled={disabled || !shareEnabled || shareState.status === "busy"}
           onClick={onShare}
         >

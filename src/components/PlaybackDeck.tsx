@@ -31,17 +31,17 @@ function formatTime(s: number) {
   return `${mm}:${String(ss).padStart(2, "0")}.${tenths}`;
 }
 
-function PlayIcon() {
+function PlayIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden>
       <path d="M3 1.5v13l11-6.5-11-6.5Z" />
     </svg>
   );
 }
 
-function PauseIcon() {
+function PauseIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden>
       <rect x="3" y="1.5" width="4" height="13" />
       <rect x="9" y="1.5" width="4" height="13" />
     </svg>
@@ -115,14 +115,18 @@ export default function PlaybackDeck({
         >
           <StepIcon back />
         </Button>
+        {/*
+         * A transport control, not a form action — it gets its own circular
+         * treatment (size + accent icon) rather than Tier 1's solid block, so
+         * it doesn't compete with Save Play for "the one primary button".
+         */}
         <Button
-          variant="primary"
           disabled={disabled}
           onClick={onTogglePlay}
           aria-label={isPlaying ? "Pause" : "Play"}
-          className="!px-3.5"
+          className="!h-11 !w-11 !rounded-full !border !border-sky-400/40 !bg-transparent !p-0 !text-sky-400 flex items-center justify-center enabled:hover:!border-sky-400 enabled:hover:!bg-sky-400/10 enabled:hover:!text-sky-300"
         >
-          {isPlaying ? <PauseIcon /> : <PlayIcon />}
+          {isPlaying ? <PauseIcon size={15} /> : <PlayIcon size={15} />}
         </Button>
         <Button
           disabled={scrubDisabled}

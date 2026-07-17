@@ -1031,7 +1031,10 @@ export default function FieldCanvas({
           passSnapRef.current = null;
           draw();
         }}
-        className="block w-full touch-none border border-[#1F2937]"
+        className={
+          "block w-full touch-none rounded-xl border border-white/[0.08] " +
+          "shadow-[inset_0_0_20px_rgba(0,0,0,0.35)]"
+        }
         style={{ cursor: canvasCursor }}
       />
 

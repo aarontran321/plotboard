@@ -37,7 +37,7 @@ export default function PlayNameBar({ name, disabled, onName, onSave }: Props) {
           }
         }}
         placeholder="Enter play name (e.g., Vertical Cross, Flex Offense)..."
-        className="flex-1 !border-b-2"
+        className="flex-1"
       />
       <Button variant="primary" disabled={disabled} onClick={onSave} className="shrink-0">
         Save Play

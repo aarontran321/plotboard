@@ -535,10 +535,12 @@ export function drawPlayer(
   grad.addColorStop(0.55, base);
   grad.addColorStop(1, dark);
 
+  // Drop shadow cast onto the turf, so the token reads as sitting physically
+  // above the field rather than painted onto it.
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.55)";
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = r * 0.22;
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 4;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = grad;

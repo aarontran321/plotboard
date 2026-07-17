@@ -175,6 +175,29 @@ Things that will bite you if you don't know them:
   throughout (player tokens, the outcome banner, the passing lane, snap
   highlights); `ui.tsx` uses gradient buttons and frosted-glass panels. If a
   future brief asks to go flat again, that's a third reversal, not a bug.
+- **Buttons are a strict 3-tier hierarchy, not "gradient everywhere".** A
+  follow-up brief specifically complained about the emerald active-toggle
+  color clashing with the turf, and about too many buttons competing for
+  attention — so `Button` in `ui.tsx` was narrowed: exactly one button
+  anywhere on screen at a time may be `variant="primary"` (a solid sky-500
+  block — currently Save Play, in the main view; Create GIF also uses it, but
+  only inside the export modal, which is never on screen at the same time as
+  Save Play, so the two don't actually compete). Everything else is
+  `variant="default"` (Tier 2 — outline, fades to slate on hover) or
+  `variant="danger"` (Tier 3 — muted rose outline, only turns vibrant on
+  hover; used by Clear Route / Reset All Routes). A toggled-**on** mode
+  (`active`, e.g. Draw Route Mode) is neither tier — it's a matte fill with a
+  glowing sky-blue *ring*, deliberately distinct from Tier 1's solid fill so
+  "this mode is on" never reads as "click this to act". The Play/Pause
+  transport control in `PlaybackDeck` is its own thing again: a circular
+  outline button in the accent colour, sized up rather than filled solid, so
+  it stays visually prominent without contending with Save Play for Tier 1.
+- **`Segmented` (in `ui.tsx`) replaces dropdowns for small fixed choice sets.**
+  Defensive Coverage (3 options) and Field Style (2 options) are now tap-to-
+  select segmented controls instead of `<select>` dropdowns; the Tool section
+  became a 2-way Move/Draw segmented control instead of a single toggle
+  button. Offense/Defense Formation stayed as the underline `Select` — 4 and
+  5 options respectively are too many to sit comfortably in a segmented row.
 - **A play's `name` may be empty, and the default is never stored.** The default
   is a timestamp, so materialising it during render would produce different
   markup on the server and the client and break hydration. `resolvePlayName`
