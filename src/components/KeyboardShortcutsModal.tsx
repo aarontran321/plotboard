@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
+import { Button } from "./ui";
 
 interface Props {
   open: boolean;
   onOpen: () => void;
   onClose: () => void;
+  /** Launches the guided feature tour and closes this modal. */
+  onStartTour: () => void;
 }
 
 interface Shortcut {
@@ -58,7 +61,7 @@ const GROUPS: Group[] = [
  * anyone who hasn't memorised them from the inline hints scattered around
  * the board.
  */
-export default function KeyboardShortcutsModal({ open, onOpen, onClose }: Props) {
+export default function KeyboardShortcutsModal({ open, onOpen, onClose, onStartTour }: Props) {
   // Escape closes, same convention as the other dialogs in this app; capture
   // phase so it runs before the board's own Escape binding (deselect).
   useEffect(() => {
@@ -111,6 +114,10 @@ export default function KeyboardShortcutsModal({ open, onOpen, onClose }: Props)
                 ✕
               </button>
             </div>
+
+            <Button variant="primary" onClick={onStartTour} className="w-full">
+              Take the Feature Tour
+            </Button>
 
             {GROUPS.map((group) => (
               <div key={group.title} className="flex flex-col gap-1.5">

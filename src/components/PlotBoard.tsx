@@ -8,6 +8,7 @@ import { flattenPath, pointAtT } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
 import { History, restore, snapshot, type Snapshot } from "@/lib/history";
 import { loadPlayLocal, savePlayLocal } from "@/lib/localPlays";
+import { hasCompletedOnboardingTour, markOnboardingTourComplete } from "@/lib/onboarding";
 import { playNameSlug, resolvePlayName } from "@/lib/playName";
 import { serializePlayState } from "@/lib/playSchema";
 import { buildPresetRoute } from "@/lib/routePresets";
@@ -32,6 +33,7 @@ import FieldCanvas, { type FieldCanvasHandle } from "./FieldCanvas";
 import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import LeftPanel from "./LeftPanel";
 import NamePlayDialog from "./NamePlayDialog";
+import OnboardingTour, { type TourSection } from "./OnboardingTour";
 import { FRAME_STEP } from "./PlaybackDeck";
 import PlayChat from "./PlayChat";
 import PlayNameBar from "./PlayNameBar";
@@ -112,6 +114,11 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
    * implements for its own deck rather than a second implementation.
    */
   const fieldCanvasRef = useRef<FieldCanvasHandle>(null);
+  // Stable wrappers the onboarding tour measures and spotlights — stable
+  // across the collapse/expand toggle so a ref never goes stale mid-tour.
+  const leftPanelElRef = useRef<HTMLDivElement>(null);
+  const rightPanelElRef = useRef<HTMLDivElement>(null);
+  const chatCardElRef = useRef<HTMLDivElement>(null);
   const [playback, setPlayback] = useState<{ t: number; duration: number; sim: SimState | null }>({
     t: 0,
     duration: 0,
@@ -133,6 +140,66 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+
+  const [tourOpen, setTourOpen] = useState(false);
+
+  /*
+   * First-time visitors get the tour automatically; everyone else can
+   * replay it from the shortcuts modal. Reading localStorage only after
+   * mount (never in a `useState` initialiser) avoids a hydration mismatch —
+   * the server has no notion of "has this browser seen the tour before".
+   */
+  /* eslint-disable react-hooks/set-state-in-effect -- see note above */
+  useEffect(() => {
+    if (!hasCompletedOnboardingTour()) setTourOpen(true);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  /*
+   * The tour spotlights the formations and active-element panels, which
+   * makes no sense collapsed — force them open for the run and restore
+   * whatever the user had the moment it started.
+   */
+  useEffect(() => {
+    if (!tourOpen) return;
+    const wasLeftCollapsed = leftCollapsed;
+    const wasRightCollapsed = rightCollapsed;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing UI to the tour's on/off state
+    if (wasLeftCollapsed) setLeftCollapsed(false);
+    if (wasRightCollapsed) setRightCollapsed(false);
+    return () => {
+      setLeftCollapsed(wasLeftCollapsed);
+      setRightCollapsed(wasRightCollapsed);
+    };
+    // Deliberately only re-runs on `tourOpen`: it captures whatever collapse
+    // state was true the moment the tour opened, not a live mirror of it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourOpen]);
+
+  /** Where the tour finds the live DOM node(s) for each section it spotlights. */
+  const getTourSectionEls = useCallback((section: TourSection): HTMLElement[] => {
+    switch (section) {
+      case "field": {
+        const el = fieldCanvasRef.current?.getCanvasEl();
+        return el ? [el] : [];
+      }
+      case "bottom": {
+        const deck = fieldCanvasRef.current?.getDeckEl();
+        const chat = chatCardElRef.current;
+        const els: (HTMLElement | null | undefined)[] = [deck, chat];
+        return els.filter((x): x is HTMLElement => Boolean(x));
+      }
+      case "left":
+        return leftPanelElRef.current ? [leftPanelElRef.current] : [];
+      case "right":
+        return rightPanelElRef.current ? [rightPanelElRef.current] : [];
+    }
+  }, []);
+
+  const onTourExit = useCallback((completed: boolean) => {
+    setTourOpen(false);
+    if (completed) markOnboardingTourComplete();
+  }, []);
 
   const historyRef = useRef(new History());
   // History lives outside React, so its availability is mirrored into state.
@@ -536,35 +603,37 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           } as React.CSSProperties
         }
       >
-        {leftCollapsed ? (
-          <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-            <CollapseButton glyph="»" label="Expand formations panel" onClick={() => setLeftCollapsed(false)} />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-              <CollapseButton glyph="«" label="Collapse formations panel" onClick={() => setLeftCollapsed(true)} />
+        <div ref={leftPanelElRef}>
+          {leftCollapsed ? (
+            <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+              <CollapseButton glyph="»" label="Expand formations panel" onClick={() => setLeftCollapsed(false)} />
             </div>
-            <LeftPanel
-              formation={play.formation}
-              defenseFormation={play.defenseFormation}
-              coverage={play.coverage}
-              speed={speed}
-              drawMode={drawMode}
-              theme={theme}
-              disabled={isExporting}
-              onFormation={onFormation}
-              onDefenseFormation={onDefenseFormation}
-              onCoverage={onCoverage}
-              onSpeed={setSpeed}
-              onDrawMode={(on) => {
-                setDrawMode(on);
-                if (on) setIsPlacingPassTarget(false);
-              }}
-              onTheme={setTheme}
-            />
-          </div>
-        )}
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-end">
+                <CollapseButton glyph="«" label="Collapse formations panel" onClick={() => setLeftCollapsed(true)} />
+              </div>
+              <LeftPanel
+                formation={play.formation}
+                defenseFormation={play.defenseFormation}
+                coverage={play.coverage}
+                speed={speed}
+                drawMode={drawMode}
+                theme={theme}
+                disabled={isExporting}
+                onFormation={onFormation}
+                onDefenseFormation={onDefenseFormation}
+                onCoverage={onCoverage}
+                onSpeed={setSpeed}
+                onDrawMode={(on) => {
+                  setDrawMode(on);
+                  if (on) setIsPlacingPassTarget(false);
+                }}
+                onTheme={setTheme}
+              />
+            </div>
+          )}
+        </div>
 
         <main className="flex flex-col gap-3">
           <PlayNameBar
@@ -621,7 +690,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             )}
           </div>
 
-          <div className="rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-3 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          <div
+            ref={chatCardElRef}
+            className="rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-3 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+          >
             <PlayChat
               play={play}
               playbackT={playback.t}
@@ -641,38 +713,40 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           </p>
         </main>
 
-        {rightCollapsed ? (
-          <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-            <CollapseButton glyph="«" label="Expand active-element panel" onClick={() => setRightCollapsed(false)} />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <div className="flex justify-start">
-              <CollapseButton glyph="»" label="Collapse active-element panel" onClick={() => setRightCollapsed(true)} />
+        <div ref={rightPanelElRef}>
+          {rightCollapsed ? (
+            <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+              <CollapseButton glyph="«" label="Expand active-element panel" onClick={() => setRightCollapsed(false)} />
             </div>
-            <RightPanel
-              selected={selected}
-              hasRoute={hasRoute}
-              hasAnyRoutes={hasAnyRoutes}
-              drawMode={drawMode}
-              isPlacingPassTarget={isPlacingPassTarget}
-              onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              disabled={locked}
-              onPreset={onPreset}
-              onClearRoute={onClearRoute}
-              onResetAllRoutes={onResetAllRoutes}
-              onUndo={undo}
-              onRedo={redo}
-              saveState={saveState}
-              savedPlays={savedPlays}
-              activeSavedId={activeSavedId}
-              onLoadSaved={onLoadSaved}
-              onDeleteSaved={onDeleteSaved}
-            />
-          </div>
-        )}
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-start">
+                <CollapseButton glyph="»" label="Collapse active-element panel" onClick={() => setRightCollapsed(true)} />
+              </div>
+              <RightPanel
+                selected={selected}
+                hasRoute={hasRoute}
+                hasAnyRoutes={hasAnyRoutes}
+                drawMode={drawMode}
+                isPlacingPassTarget={isPlacingPassTarget}
+                onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                disabled={locked}
+                onPreset={onPreset}
+                onClearRoute={onClearRoute}
+                onResetAllRoutes={onResetAllRoutes}
+                onUndo={undo}
+                onRedo={redo}
+                saveState={saveState}
+                savedPlays={savedPlays}
+                activeSavedId={activeSavedId}
+                onLoadSaved={onLoadSaved}
+                onDeleteSaved={onDeleteSaved}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       <NamePlayDialog
@@ -686,7 +760,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         open={shortcutsOpen}
         onOpen={() => setShortcutsOpen(true)}
         onClose={() => setShortcutsOpen(false)}
+        onStartTour={() => {
+          setShortcutsOpen(false);
+          setTourOpen(true);
+        }}
       />
+
+      <OnboardingTour open={tourOpen} getSectionEls={getTourSectionEls} onExit={onTourExit} />
     </div>
   );
 }

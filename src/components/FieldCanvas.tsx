@@ -77,6 +77,11 @@ interface Props {
 export interface FieldCanvasHandle {
   scrub: (t: number) => void;
   step: (deltaSeconds: number) => void;
+  /** The raw canvas element, so a caller (the onboarding tour) can measure
+   *  and spotlight it without this component knowing that tour exists. */
+  getCanvasEl: () => HTMLCanvasElement | null;
+  /** The playback deck's wrapper element, same reasoning as `getCanvasEl`. */
+  getDeckEl: () => HTMLDivElement | null;
 }
 
 /**
@@ -161,6 +166,7 @@ function FieldCanvas(
 ) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const deckWrapRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(() => makeView(960));
 
   // Key moments for the deck's timeline ticks — the same replay `PlayChat`
@@ -602,7 +608,16 @@ function FieldCanvas(
   // The play dashboard below the field drives this same playhead (e.g.
   // clicking a timeline event marker), so it gets the same scrub/step
   // functions the internal PlaybackDeck uses — not a second implementation.
-  useImperativeHandle(ref, () => ({ scrub: onScrub, step: onStep }), [onScrub, onStep]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrub: onScrub,
+      step: onStep,
+      getCanvasEl: () => canvasRef.current,
+      getDeckEl: () => deckWrapRef.current,
+    }),
+    [onScrub, onStep]
+  );
 
   // --- Interaction --------------------------------------------------------
 
@@ -1242,7 +1257,7 @@ function FieldCanvas(
         />
       )}
 
-      <div className="mt-2">
+      <div ref={deckWrapRef} className="mt-2">
         <PlaybackDeck
           isPlaying={isPlaying}
           disabled={false}
