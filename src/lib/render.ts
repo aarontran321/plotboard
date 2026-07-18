@@ -397,7 +397,14 @@ export interface PlayerStyle {
   shimmer?: number;
   /** This token currently has the ball — draws a small badge above it. */
   hasBall?: boolean;
+  /** The cursor is over this token — a distinguishing ring for dense clusters. */
+  hovered?: boolean;
 }
+
+/** Hover ring colour — deliberately distinct from selection (gold), the
+ *  passing lane / snap highlight (sky), and shimmer (also sky), so all four
+ *  read as different signals when they overlap. */
+const HOVER_COLOR = "#2DD4BF";
 
 /** A small football badge marking whoever currently has the ball. */
 function drawBallBadge(ctx: Ctx, cx: number, cy: number, r: number) {
@@ -449,6 +456,7 @@ export function drawPlayer(
     snapHighlight = false,
     shimmer = 0,
     hasBall = false,
+    hovered = false,
   } = style;
   const cx = pos.x * v.scale;
   const cy = pos.y * v.scale;
@@ -456,6 +464,18 @@ export function drawPlayer(
   const r = PLAYER_RADIUS * v.scale * (snapHighlight ? 1.14 : 1);
 
   ctx.save();
+
+  if (hovered) {
+    ctx.save();
+    ctx.shadowColor = HOVER_COLOR;
+    ctx.shadowBlur = 9;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + (selected ? 6.5 : 3), 0, Math.PI * 2);
+    ctx.lineWidth = 1.75;
+    ctx.strokeStyle = HOVER_COLOR;
+    ctx.stroke();
+    ctx.restore();
+  }
 
   if (shimmer > 0) {
     ctx.save();
@@ -751,6 +771,23 @@ export function drawQBThrowGuides(ctx: Ctx, v: View, qb: Point, starts: Point[],
   ctx.restore();
 }
 
+/** The drag-to-select marquee box: a translucent fill with a dashed outline. */
+export function drawMarquee(ctx: Ctx, v: View, box: { x0: number; y0: number; x1: number; y1: number }) {
+  const x = box.x0 * v.scale;
+  const y = box.y0 * v.scale;
+  const w = (box.x1 - box.x0) * v.scale;
+  const h = (box.y1 - box.y0) * v.scale;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(56,189,248,0.12)";
+  ctx.fillRect(x, y, w, h);
+  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = COLORS.passingLane;
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
+
 /** A faint orange "ghost" marker tracking the cursor near a valid route. */
 export function drawGhostTarget(ctx: Ctx, v: View, point: Point) {
   ctx.save();
@@ -786,6 +823,8 @@ export interface SceneOptions {
   groupSelectedIds?: string[];
   /** In-progress route being drawn, rendered before it is committed. */
   draftRoute: Point[] | null;
+  /** In-progress marquee selection box, in world coordinates. */
+  marquee?: { x0: number; y0: number; x1: number; y1: number } | null;
   /** Present only while the QB is selected and the play is idle. */
   qbGuide?: QBGuideOptions | null;
   /** Present only while the dedicated Pass Target Tool is armed. */
@@ -804,6 +843,8 @@ export interface SceneOptions {
   warnings?: Record<string, number>;
   /** Player id -> shimmer phase (0..1, looping), from the context menu action. */
   shimmers?: Record<string, number>;
+  /** The token under the cursor, drawn last so it sits above any it overlaps. */
+  hoveredId?: string | null;
   /**
    * Purely visual formation transition: player id -> the position to draw them
    * at instead of their alignment. The authored state jumps immediately; only
@@ -850,6 +891,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     selectedId,
     groupSelectedIds,
     draftRoute,
+    marquee,
     qbGuide,
     passPlacement,
     dashOffset = 0,
@@ -860,6 +902,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     transition,
     background,
     theme = "turf",
+    hoveredId,
   } = opts;
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
@@ -925,7 +968,15 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
 
   const carrierId = ballCarrierId(play, sim);
 
-  for (const p of play.players) {
+  // The hovered token draws last (on top of any it overlaps) so a dense
+  // cluster — around an interception, a tackle, a crowded formation — can
+  // still be picked apart by mousing over it.
+  const drawOrder =
+    hoveredId && play.players.some((p) => p.id === hoveredId)
+      ? [...play.players.filter((p) => p.id !== hoveredId), ...play.players.filter((p) => p.id === hoveredId)]
+      : play.players;
+
+  for (const p of drawOrder) {
     const pos = posOf(p);
     if (!pos) continue;
     const shimmer = shimmers?.[p.id];
@@ -938,9 +989,11 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
       snapHighlight: passPlacement?.snapReceiverId === p.id,
       shimmer: shimmer ?? 0,
       hasBall: p.id === carrierId,
+      hovered: p.id === hoveredId,
     });
   }
 
   if (sim?.ball) drawBall(ctx, v, sim.ball);
   if (sim?.outcome) drawBanner(ctx, v, sim.outcome);
+  if (marquee) drawMarquee(ctx, v, marquee);
 }

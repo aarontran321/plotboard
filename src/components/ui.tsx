@@ -237,6 +237,40 @@ export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLIn
   }
 );
 
+/**
+ * A small square icon button showing a chevron/arrow glyph («, », ⌄), used to
+ * collapse or re-expand a panel. Kept as a plain glyph rather than an SVG —
+ * these four characters read clearly at 12px and need no path data.
+ */
+export function CollapseButton({
+  glyph,
+  label,
+  onClick,
+  className = "",
+}: {
+  glyph: string;
+  label: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={
+        "flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md border " +
+        "border-white/[0.08] bg-[#0F172A]/80 text-[12px] font-bold text-[#7C8AA5] " +
+        "transition-colors hover:bg-white/[0.08] hover:text-[#E5E7EB] " +
+        className
+      }
+    >
+      {glyph}
+    </button>
+  );
+}
+
 /** A small, softly elevated value chip. */
 export function Badge({ children }: { children: ReactNode }) {
   return (

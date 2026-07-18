@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   LOS_HIT_RADIUS,
   LOS_MAX_X,
@@ -19,15 +19,17 @@ import {
 import { flattenPath, nearestOnPath, pointAtT } from "@/lib/geometry";
 import { snapshot, type Snapshot } from "@/lib/history";
 import { drawField, drawScene } from "@/lib/render";
+import { buildPresetRoute } from "@/lib/routePresets";
 import {
   computeExactDuration,
+  computePlayEvents,
   createContext,
   createInitialSim,
   simulateTo,
   stepSim,
   type SimContext,
 } from "@/lib/simulation";
-import type { PassTarget, PlayerDef, PlayState, Point, SimState } from "@/lib/types";
+import type { PassTarget, PlayerDef, PlayState, Point, RoutePresetId, SimState } from "@/lib/types";
 import PlaybackDeck from "./PlaybackDeck";
 import PlayerContextMenu from "./PlayerContextMenu";
 
@@ -99,7 +101,8 @@ type Interaction =
       before: Snapshot;
     }
   | { kind: "route"; id: string; before: Snapshot }
-  | { kind: "los"; before: Snapshot };
+  | { kind: "los"; before: Snapshot }
+  | { kind: "marquee" };
 
 /** Milliseconds a formation change takes to ease into place. */
 const TRANSITION_MS = 340;
@@ -115,6 +118,10 @@ const ROUTE_SAMPLE_SPACING = 0.7;
 
 /** A drawn route shorter than this is treated as a stray click. */
 const MIN_ROUTE_LENGTH = 1.5;
+
+/** A marquee drag smaller than this in either axis (world yards) is treated
+ *  as a plain click on open field rather than a selection box. */
+const MARQUEE_MIN_DRAG = 1;
 
 /** Largest frame step the sim will accept, so a stalled tab cannot teleport players. */
 const MAX_FRAME_DT = 1 / 20;
@@ -155,6 +162,10 @@ function FieldCanvas(
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [view, setView] = useState<View>(() => makeView(960));
+
+  // Key moments for the deck's timeline ticks — the same replay `PlayChat`
+  // builds its feed from, so a moment lands on the same timestamp everywhere.
+  const events = useMemo(() => computePlayEvents(createContext(play)), [play]);
 
   // Tokens dragged together as a group (shift-click to build one). Cleared
   // whenever the primary selection is cleared or draw mode is toggled on.
@@ -245,6 +256,8 @@ function FieldCanvas(
   const notifiedRef = useRef(false);
   const interactionRef = useRef<Interaction>({ kind: "none" });
   const draftRef = useRef<Point[] | null>(null);
+  /** In-progress marquee drag: world-space origin and current cursor point. */
+  const marqueeRef = useRef<{ origin: Point; current: Point; additive: boolean } | null>(null);
   const fieldCacheRef = useRef<HTMLCanvasElement | null>(null);
   /** Ghost-target cursor position while the QB is selected and idle. */
   const hoverTargetRef = useRef<Point | null>(null);
@@ -256,6 +269,8 @@ function FieldCanvas(
   const losActiveRef = useRef(false);
   /** Player id -> timestamp of their last boundary violation. */
   const warnRef = useRef<Record<string, number>>({});
+  /** Player currently under the cursor, drawn on top of any overlapping tokens. */
+  const hoveredIdRef = useRef<string | null>(null);
   /** Player id -> timestamp a "shimmer" highlight was triggered from the context menu. */
   const shimmerRef = useRef<Record<string, number>>({});
   /** In-flight formation transition: where each player is easing from. */
@@ -405,12 +420,27 @@ function FieldCanvas(
     // aesthetic this pass asked for.
     const idleDash = !playing && !drawing ? qbDashRef.current : 0;
 
+    const box = marqueeRef.current;
+    const marquee = box
+      ? {
+          x0: Math.min(box.origin.x, box.current.x),
+          y0: Math.min(box.origin.y, box.current.y),
+          x1: Math.max(box.origin.x, box.current.x),
+          y1: Math.max(box.origin.y, box.current.y),
+        }
+      : null;
+
     drawScene(ctx, viewRef.current, {
       play: p,
       sim: simRef.current?.sim ?? null,
       selectedId: sel,
       groupSelectedIds: groupIds.size > 0 ? [...groupIds] : undefined,
       draftRoute: draftRef.current,
+      marquee,
+      // Only meaningful while idle — hover tracking is suspended during
+      // playback (see `onHover`), so a stale id from just before Play was
+      // pressed must not keep pinning a token to the top layer.
+      hoveredId: playing ? null : hoveredIdRef.current,
       qbGuide:
         sel === "QB" && !playing && !drawing
           ? { dashOffset: qbDashRef.current, hoverTarget: hoverTargetRef.current }
@@ -776,6 +806,17 @@ function FieldCanvas(
       return;
     }
 
+    // 5. In move mode, open field starts a marquee drag rather than clearing
+    //    the selection immediately — `endInteraction` decides, from how far
+    //    the drag actually travelled, whether this was a click or a box.
+    if (!drawMode) {
+      marqueeRef.current = { origin: world, current: world, additive: e.shiftKey };
+      interactionRef.current = { kind: "marquee" };
+      capture();
+      draw();
+      return;
+    }
+
     setGroupIds(new Set());
     onSelect(null);
   };
@@ -785,6 +826,15 @@ function FieldCanvas(
     if (isPlaying) return;
     const world = pointerToWorld(e);
     let repaint = false;
+
+    // Whichever token the cursor sits over is drawn last (on top of any
+    // overlapping tokens) and gets a highlight ring, so a dense cluster (e.g.
+    // around an interception) can still be picked apart by hovering.
+    const hoverHit = playerAt(world);
+    if (hoverHit !== hoveredIdRef.current) {
+      hoveredIdRef.current = hoverHit;
+      repaint = true;
+    }
 
     if (isPlacingPassTarget) {
       const hit = routePointAt(world);
@@ -798,7 +848,7 @@ function FieldCanvas(
       return;
     }
 
-    const overLos = nearLos(world) && !playerAt(world);
+    const overLos = nearLos(world) && !hoverHit;
     if (overLos !== losActiveRef.current) {
       losActiveRef.current = overLos;
       repaint = true;
@@ -822,6 +872,14 @@ function FieldCanvas(
     }
 
     const raw = pointerToWorld(e);
+
+    if (interaction.kind === "marquee") {
+      const box = marqueeRef.current;
+      if (!box) return;
+      marqueeRef.current = { ...box, current: raw };
+      draw();
+      return;
+    }
 
     // Dragging the line of scrimmage carries both alignments with it, so the
     // formation keeps its shape relative to the new start point.
@@ -972,6 +1030,55 @@ function FieldCanvas(
       return;
     }
 
+    if (interaction.kind === "marquee") {
+      const box = marqueeRef.current;
+      marqueeRef.current = null;
+      draw();
+      if (!box) return;
+
+      const x0 = Math.min(box.origin.x, box.current.x);
+      const x1 = Math.max(box.origin.x, box.current.x);
+      const y0 = Math.min(box.origin.y, box.current.y);
+      const y1 = Math.max(box.origin.y, box.current.y);
+
+      // A drag too small to have been deliberate is a plain click on open
+      // field: clear the selection (unless shift was held, in which case a
+      // stray shift-click shouldn't wipe out what's already selected).
+      if (x1 - x0 < MARQUEE_MIN_DRAG && y1 - y0 < MARQUEE_MIN_DRAG) {
+        if (!box.additive) {
+          setGroupIds(new Set());
+          onSelect(null);
+        }
+        return;
+      }
+
+      const hits = play.players
+        .filter((p) => p.startX >= x0 && p.startX <= x1 && p.startY >= y0 && p.startY <= y1)
+        .map((p) => p.id);
+
+      if (hits.length === 0) {
+        if (!box.additive) {
+          setGroupIds(new Set());
+          onSelect(null);
+        }
+        return;
+      }
+
+      if (hits.length === 1) {
+        setGroupIds(box.additive ? (prev) => new Set(prev).add(hits[0]) : new Set());
+        onSelect(hits[0]);
+        return;
+      }
+
+      setGroupIds((prev) => {
+        const next = box.additive ? new Set(prev) : new Set<string>();
+        for (const id of hits) next.add(id);
+        return next;
+      });
+      onSelect(hits[0]);
+      return;
+    }
+
     if (interaction.kind === "route") {
       const draft = draftRef.current;
       draftRef.current = null;
@@ -1011,6 +1118,19 @@ function FieldCanvas(
   const menuCanSetPrimary = Boolean(
     menuPlayer && menuPlayer.team === "offense" && menuPlayer.id !== "QB" && menuPlayer.id !== "C"
   );
+  const menuCanRoute = Boolean(menuPlayer && menuPlayer.team === "offense" && menuPlayer.id !== "QB");
+
+  const menuPreset = (preset: RoutePresetId) => {
+    if (!menu || !menuPlayer) return;
+    const before = snapshot(play);
+    const route = buildPresetRoute(preset, { x: menuPlayer.startX, y: menuPlayer.startY });
+    onCommit(before);
+    onPlayChange({
+      ...play,
+      routes: { ...play.routes, [menu.id]: route },
+      passTarget: play.passTarget?.receiverId === menu.id ? null : play.passTarget,
+    });
+  };
 
   const menuDeleteRoute = () => {
     if (!menu) return;
@@ -1084,10 +1204,18 @@ function FieldCanvas(
         onContextMenu={onCanvasContextMenu}
         onPointerLeave={() => {
           if (interactionRef.current.kind !== "none") return;
-          if (!hoverTargetRef.current && !losActiveRef.current && !passSnapRef.current) return;
+          if (
+            !hoverTargetRef.current &&
+            !losActiveRef.current &&
+            !passSnapRef.current &&
+            !hoveredIdRef.current
+          ) {
+            return;
+          }
           hoverTargetRef.current = null;
           losActiveRef.current = false;
           passSnapRef.current = null;
+          hoveredIdRef.current = null;
           draw();
         }}
         className={
@@ -1104,6 +1232,8 @@ function FieldCanvas(
           playerLabel={`${menuPlayer.team === "offense" ? "Offense" : "Defense"} — ${menuPlayer.label}`}
           hasRoute={menuHasRoute}
           canSetPrimary={menuCanSetPrimary}
+          canRoute={menuCanRoute}
+          onPreset={menuPreset}
           onDeleteRoute={menuDeleteRoute}
           onChangeRole={menuChangeRole}
           onSetPrimary={menuSetPrimary}
@@ -1118,6 +1248,7 @@ function FieldCanvas(
           disabled={false}
           t={playbackT}
           duration={playbackDuration}
+          events={events}
           onTogglePlay={onTogglePlay}
           onReset={onReset}
           onStep={onStep}

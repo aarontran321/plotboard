@@ -29,11 +29,14 @@ import type {
   SimState,
 } from "@/lib/types";
 import FieldCanvas, { type FieldCanvasHandle } from "./FieldCanvas";
+import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import LeftPanel from "./LeftPanel";
 import NamePlayDialog from "./NamePlayDialog";
+import { FRAME_STEP } from "./PlaybackDeck";
 import PlayChat from "./PlayChat";
 import PlayNameBar from "./PlayNameBar";
 import RightPanel, { type ActionState } from "./RightPanel";
+import { CollapseButton } from "./ui";
 
 /**
  * The board is never empty on first load: it boots with a Go/Slant/Curl combo
@@ -121,6 +124,15 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   /** Which library entry is on the board, so the list can show what's loaded. */
   const [activeSavedId, setActiveSavedId] = useState<string | null>(null);
   const [gifDialogOpen, setGifDialogOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Collateral panels can be tucked away to give the field more room on
+  // smaller screens; the field itself already resizes to fill whatever width
+  // its wrapper has via `FieldCanvas`'s `ResizeObserver`, so collapsing a
+  // column needs no extra wiring beyond changing that column's width.
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
 
   const historyRef = useRef(new History());
   // History lives outside React, so its availability is mirrored into state.
@@ -366,6 +378,15 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         return;
       }
 
+      // "?" is Shift+/ on most layouts — checked before the blanket
+      // Shift-modified-keys bail-out below, which is meant for combos this
+      // project doesn't bind, not for the one key that needs Shift to type.
+      if (e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+
       if (e.altKey || e.shiftKey) return;
 
       if (key === " " || key === "spacebar") {
@@ -381,6 +402,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         if (locked) return;
         e.preventDefault();
         setDrawMode((v) => !v);
+      } else if (key === "arrowleft" || key === "arrowright") {
+        // Stepping fights the live animation loop over the same state, same
+        // as the deck's own step buttons — so this is a no-op mid-playback
+        // rather than an implicit pause.
+        if (locked || isPlaying) return;
+        e.preventDefault();
+        fieldCanvasRef.current?.step(key === "arrowleft" ? -FRAME_STEP : FRAME_STEP);
       } else if (key === "escape") {
         setSelectedId(null);
         setIsPlacingPassTarget(false);
@@ -499,25 +527,44 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         </div>
       </header>
 
-      <div className="grid items-start gap-4 p-4 lg:grid-cols-[240px_minmax(0,1fr)_280px]">
-        <LeftPanel
-          formation={play.formation}
-          defenseFormation={play.defenseFormation}
-          coverage={play.coverage}
-          speed={speed}
-          drawMode={drawMode}
-          theme={theme}
-          disabled={isExporting}
-          onFormation={onFormation}
-          onDefenseFormation={onDefenseFormation}
-          onCoverage={onCoverage}
-          onSpeed={setSpeed}
-          onDrawMode={(on) => {
-            setDrawMode(on);
-            if (on) setIsPlacingPassTarget(false);
-          }}
-          onTheme={setTheme}
-        />
+      <div
+        className="grid items-start gap-4 p-4 lg:grid-cols-[var(--left-w)_minmax(0,1fr)_var(--right-w)]"
+        style={
+          {
+            "--left-w": leftCollapsed ? "40px" : "240px",
+            "--right-w": rightCollapsed ? "40px" : "280px",
+          } as React.CSSProperties
+        }
+      >
+        {leftCollapsed ? (
+          <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+            <CollapseButton glyph="»" label="Expand formations panel" onClick={() => setLeftCollapsed(false)} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-end">
+              <CollapseButton glyph="«" label="Collapse formations panel" onClick={() => setLeftCollapsed(true)} />
+            </div>
+            <LeftPanel
+              formation={play.formation}
+              defenseFormation={play.defenseFormation}
+              coverage={play.coverage}
+              speed={speed}
+              drawMode={drawMode}
+              theme={theme}
+              disabled={isExporting}
+              onFormation={onFormation}
+              onDefenseFormation={onDefenseFormation}
+              onCoverage={onCoverage}
+              onSpeed={setSpeed}
+              onDrawMode={(on) => {
+                setDrawMode(on);
+                if (on) setIsPlacingPassTarget(false);
+              }}
+              onTheme={setTheme}
+            />
+          </div>
+        )}
 
         <main className="flex flex-col gap-3">
           <PlayNameBar
@@ -579,6 +626,8 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               play={play}
               playbackT={playback.t}
               disabled={locked}
+              collapsed={chatCollapsed}
+              onToggleCollapsed={() => setChatCollapsed((v) => !v)}
               onScrub={(t) => fieldCanvasRef.current?.scrub(t)}
             />
           </div>
@@ -588,31 +637,42 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc cancels."
               : drawMode
                 ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
-                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click to drag several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
+                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click, or drag a box over open field, to select several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
           </p>
         </main>
 
-        <RightPanel
-          selected={selected}
-          hasRoute={hasRoute}
-          hasAnyRoutes={hasAnyRoutes}
-          drawMode={drawMode}
-          isPlacingPassTarget={isPlacingPassTarget}
-          onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          disabled={locked}
-          onPreset={onPreset}
-          onClearRoute={onClearRoute}
-          onResetAllRoutes={onResetAllRoutes}
-          onUndo={undo}
-          onRedo={redo}
-          saveState={saveState}
-          savedPlays={savedPlays}
-          activeSavedId={activeSavedId}
-          onLoadSaved={onLoadSaved}
-          onDeleteSaved={onDeleteSaved}
-        />
+        {rightCollapsed ? (
+          <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+            <CollapseButton glyph="«" label="Expand active-element panel" onClick={() => setRightCollapsed(false)} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-start">
+              <CollapseButton glyph="»" label="Collapse active-element panel" onClick={() => setRightCollapsed(true)} />
+            </div>
+            <RightPanel
+              selected={selected}
+              hasRoute={hasRoute}
+              hasAnyRoutes={hasAnyRoutes}
+              drawMode={drawMode}
+              isPlacingPassTarget={isPlacingPassTarget}
+              onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              disabled={locked}
+              onPreset={onPreset}
+              onClearRoute={onClearRoute}
+              onResetAllRoutes={onResetAllRoutes}
+              onUndo={undo}
+              onRedo={redo}
+              saveState={saveState}
+              savedPlays={savedPlays}
+              activeSavedId={activeSavedId}
+              onLoadSaved={onLoadSaved}
+              onDeleteSaved={onDeleteSaved}
+            />
+          </div>
+        )}
       </div>
 
       <NamePlayDialog
@@ -620,6 +680,12 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         initialName={play.name}
         onConfirm={onExportConfirmed}
         onCancel={() => setGifDialogOpen(false)}
+      />
+
+      <KeyboardShortcutsModal
+        open={shortcutsOpen}
+        onOpen={() => setShortcutsOpen(true)}
+        onClose={() => setShortcutsOpen(false)}
       />
     </div>
   );

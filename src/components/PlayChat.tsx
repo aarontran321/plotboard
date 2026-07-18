@@ -9,6 +9,9 @@ interface Props {
   /** Seconds into the play; used only to mark which moments have already been reached. */
   playbackT: number;
   disabled: boolean;
+  /** Hides the feed, leaving just the header, to give the field more vertical room. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   /** Jumps the shared playhead straight to a moment's timestamp. */
   onScrub: (t: number) => void;
 }
@@ -40,7 +43,14 @@ const KIND_ACCENT: Record<PlayEventKind, string> = {
  * tooltip with the exact time and context, via a pure-CSS `group-hover`
  * (no extra hover state to manage).
  */
-export default function PlayChat({ play, playbackT, disabled, onScrub }: Props) {
+export default function PlayChat({
+  play,
+  playbackT,
+  disabled,
+  collapsed = false,
+  onToggleCollapsed,
+  onScrub,
+}: Props) {
   const events = useMemo(() => {
     const list = computePlayEvents(createContext(play));
     return [...list].sort((a, b) => a.t - b.t);
@@ -48,14 +58,30 @@ export default function PlayChat({ play, playbackT, disabled, onScrub }: Props) 
 
   return (
     <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between">
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        disabled={!onToggleCollapsed}
+        aria-expanded={!collapsed}
+        className="flex w-full cursor-pointer items-center justify-between gap-2 text-left select-none disabled:cursor-default"
+      >
         <span className="text-[11px] tracking-wide text-[#7C8AA5] uppercase">Play Chat</span>
-        {events.length > 0 && (
-          <span className="font-mono text-[10px] text-[#7C8AA5]">{events.length} moments</span>
-        )}
-      </div>
+        <span className="flex items-center gap-2">
+          {events.length > 0 && (
+            <span className="font-mono text-[10px] text-[#7C8AA5]">{events.length} moments</span>
+          )}
+          {onToggleCollapsed && (
+            <span
+              className={`text-[10px] text-[#7C8AA5] transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`}
+              aria-hidden
+            >
+              ▾
+            </span>
+          )}
+        </span>
+      </button>
 
-      {events.length === 0 ? (
+      {collapsed ? null : events.length === 0 ? (
         <p className="rounded-lg border border-white/[0.06] bg-[#0a0e17]/60 px-3 py-2.5 text-[12px] text-[#7C8AA5]">
           Draw a route and place a pass target to generate this play&apos;s event feed.
         </p>

@@ -1,6 +1,10 @@
 "use client";
 
 import type { ButtonHTMLAttributes } from "react";
+import { ROUTE_PRESET_LABELS } from "@/lib/routePresets";
+import type { RoutePresetId } from "@/lib/types";
+
+const PRESETS = Object.keys(ROUTE_PRESET_LABELS) as RoutePresetId[];
 
 function MenuItem({ className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -23,6 +27,9 @@ interface Props {
   playerLabel: string;
   hasRoute: boolean;
   canSetPrimary: boolean;
+  /** True for an offensive player who isn't the quarterback — the only ones a preset route applies to. */
+  canRoute: boolean;
+  onPreset: (preset: RoutePresetId) => void;
   onDeleteRoute: () => void;
   onChangeRole: () => void;
   onSetPrimary: () => void;
@@ -41,6 +48,8 @@ export default function PlayerContextMenu({
   playerLabel,
   hasRoute,
   canSetPrimary,
+  canRoute,
+  onPreset,
   onDeleteRoute,
   onChangeRole,
   onSetPrimary,
@@ -69,6 +78,22 @@ export default function PlayerContextMenu({
         <div className="border-b border-white/[0.06] px-3 py-2 text-[11px] font-semibold tracking-[0.1em] text-[#7C8AA5] uppercase">
           {playerLabel}
         </div>
+
+        {canRoute && (
+          <div className="grid grid-cols-2 gap-1 border-b border-white/[0.06] px-2 py-2">
+            {PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={run(() => onPreset(p))}
+                className="cursor-pointer rounded-md border border-slate-700 bg-transparent px-2 py-1 text-[11.5px] font-medium text-[#CBD5E1] transition-colors hover:bg-slate-800/60 hover:border-slate-600"
+              >
+                {ROUTE_PRESET_LABELS[p]}
+              </button>
+            ))}
+          </div>
+        )}
+
         <MenuItem disabled={!hasRoute} onClick={run(onDeleteRoute)}>
           Delete Active Route
         </MenuItem>

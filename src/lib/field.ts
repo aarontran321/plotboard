@@ -140,6 +140,19 @@ export const CHALK_COLORS: Palette = {
 
 export type FieldTheme = "turf" | "chalkboard";
 
+/**
+ * Accent colour per `PlayEventKind`, shared by the Play Chat feed and the
+ * playback deck's timeline markers so a moment reads the same colour no
+ * matter which surface shows it. Kept theme-independent — event colour is a
+ * semantic signal (release/turnover/stop), not a field-surface choice.
+ */
+export const EVENT_KIND_COLOR: Record<"release" | "deflected" | "interception" | "dead", string> = {
+  release: "#F59E0B",
+  deflected: "#38BDF8",
+  interception: "#F43F5E",
+  dead: "#94A3B8",
+};
+
 export function paletteForTheme(theme: FieldTheme): Palette {
   return theme === "chalkboard" ? CHALK_COLORS : COLORS;
 }
