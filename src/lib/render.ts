@@ -582,14 +582,18 @@ export function drawPlayer(
   ctx.fill();
   ctx.restore();
 
+  // A single ring in the player's own team color, breathing in scale and
+  // opacity — replaces the old dual yellow rings (selection + QB) which read
+  // as one indicator when both applied to the same token.
   if (selected) {
+    const teamColor = team === "offense" ? COLORS.offense : COLORS.defense;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
     ctx.save();
-    ctx.shadowColor = COLORS.selected;
-    ctx.shadowBlur = 10;
+    ctx.globalAlpha = 0.55 + 0.35 * pulse;
     ctx.beginPath();
-    ctx.arc(cx, cy, r + (isQB ? 8.5 : 3.5), 0, Math.PI * 2);
+    ctx.arc(cx, cy, r + (isQB ? 8.5 : 3.5) + pulse * 1.5, 0, Math.PI * 2);
     ctx.lineWidth = 2;
-    ctx.strokeStyle = COLORS.selected;
+    ctx.strokeStyle = teamColor;
     ctx.stroke();
     ctx.restore();
   }
@@ -630,8 +634,8 @@ export function drawBall(ctx: Ctx, v: View, ball: BallState) {
 
   // Height reads as scale: the ball grows as it climbs.
   const lift = 1 + ball.z * 0.14;
-  const rx = 0.62 * v.scale * lift;
-  const ry = 0.38 * v.scale * lift;
+  const rx = 0.95 * v.scale * lift;
+  const ry = 0.58 * v.scale * lift;
   const angle = Math.atan2(ball.to.y - ball.from.y, ball.to.x - ball.from.x);
   const drawY = cy - ball.z * 0.55 * v.scale;
 
@@ -639,7 +643,9 @@ export function drawBall(ctx: Ctx, v: View, ball: BallState) {
   ctx.translate(cx, drawY);
   ctx.rotate(angle);
 
-  // Two arcs meeting at points give the football silhouette.
+  // Two arcs meeting at points give the football silhouette. Solid dark
+  // brown, no outline — a flat, realistic leather colour rather than a
+  // stroked cartoon shape.
   ctx.beginPath();
   ctx.moveTo(-rx, 0);
   ctx.quadraticCurveTo(0, -ry * 1.6, rx, 0);
@@ -647,9 +653,6 @@ export function drawBall(ctx: Ctx, v: View, ball: BallState) {
   ctx.closePath();
   ctx.fillStyle = COLORS.ball;
   ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = "#F8FAFC";
-  ctx.stroke();
 
   // Laces.
   ctx.beginPath();
@@ -659,6 +662,34 @@ export function drawBall(ctx: Ctx, v: View, ball: BallState) {
   ctx.strokeStyle = "#F8FAFC";
   ctx.stroke();
 
+  ctx.restore();
+}
+
+/**
+ * The "drop ripple" that fires the instant a player catches the ball (a
+ * completion or an interception): a few concentric rings, staggered so they
+ * read as radiating outward one after another, expanding and fading to
+ * nothing — a raindrop hitting water, centred on the catch point.
+ */
+export function drawRipple(ctx: Ctx, v: View, point: Point, progress: number) {
+  const cx = point.x * v.scale;
+  const cy = point.y * v.scale;
+  const maxRadius = 3.4 * v.scale;
+  const ringCount = 3;
+
+  ctx.save();
+  for (let i = 0; i < ringCount; i++) {
+    const delay = i * 0.18;
+    const local = (progress - delay) / (1 - delay);
+    if (local <= 0 || local > 1) continue;
+    const radius = local * maxRadius;
+    ctx.globalAlpha = (1 - local) * 0.7;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#E0F2FE";
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -861,6 +892,9 @@ export interface SceneOptions {
   background?: CanvasImageSource | null;
   /** "turf" (default) or "chalkboard" — only used as a fallback when `background` is absent. */
   theme?: FieldTheme;
+  /** Present for a short window right after a catch (completed or intercepted):
+   *  an expanding, fading ripple centred on the catch point. `progress` is 0..1. */
+  ripple?: { x: number; y: number; progress: number } | null;
 }
 
 /**
@@ -903,6 +937,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     background,
     theme = "turf",
     hoveredId,
+    ripple,
   } = opts;
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
@@ -923,19 +958,13 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
   const posOf = (p: PlayState["players"][number]): Point | null =>
     sim ? (sim.players[p.id] ?? null) : (transition?.[p.id] ?? { x: p.startX, y: p.startY });
 
+  // Route lines are static — no marching-ants dash animation — so each one
+  // is drawn with a fixed dash offset regardless of the board's idle clock.
   for (const [id, pts] of Object.entries(play.routes)) {
     if (!pts || pts.length < 2) continue;
     const isSnapTarget = passPlacement?.snapReceiverId === id;
     const isGroupSelected = id === selectedId || (groupSelectedIds?.includes(id) ?? false);
-    drawRoute(
-      ctx,
-      v,
-      pts,
-      isGroupSelected ? COLORS.selected : COLORS.routeOffense,
-      true,
-      isSnapTarget,
-      dashOffset
-    );
+    drawRoute(ctx, v, pts, isGroupSelected ? COLORS.selected : COLORS.routeOffense, true, isSnapTarget);
   }
 
   if (draftRoute && draftRoute.length >= 2) {
@@ -994,6 +1023,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
   }
 
   if (sim?.ball) drawBall(ctx, v, sim.ball);
+  if (ripple) drawRipple(ctx, v, { x: ripple.x, y: ripple.y }, ripple.progress);
   if (sim?.outcome) drawBanner(ctx, v, sim.outcome);
   if (marquee) drawMarquee(ctx, v, marquee);
 }

@@ -60,7 +60,6 @@ interface Props {
   /** A target was placed (snapped to a receiver/route, or dropped free). */
   onPlaceTarget: (target: PassTarget) => void;
   onTogglePlay: () => void;
-  onReset: () => void;
   /**
    * Fires whenever the playhead moves (live playback, a scrub, a step, or a
    * reset) and whenever the authored play changes its exact duration. This
@@ -118,6 +117,9 @@ const WARN_MS = 450;
 /** Milliseconds a context-menu "shimmer" highlight stays visible. */
 const SHIMMER_MS = 1400;
 
+/** Milliseconds the catch ripple ("drop ripple") animates for after a completion or interception. */
+const RIPPLE_MS = 700;
+
 /** Minimum spacing between sampled route points, in yards. */
 const ROUTE_SAMPLE_SPACING = 0.7;
 
@@ -159,7 +161,6 @@ function FieldCanvas(
     onFinished,
     onPlaceTarget,
     onTogglePlay,
-    onReset,
     onPlaybackUpdate,
   }: Props,
   ref: React.ForwardedRef<FieldCanvasHandle>
@@ -279,6 +280,9 @@ function FieldCanvas(
   const hoveredIdRef = useRef<string | null>(null);
   /** Player id -> timestamp a "shimmer" highlight was triggered from the context menu. */
   const shimmerRef = useRef<Record<string, number>>({});
+  /** The catch ripple in progress, keyed by `sim.landedAt` so a landing that
+   *  stays landed across frames triggers the animation exactly once. */
+  const rippleRef = useRef<{ landedAt: number; x: number; y: number; startedAt: number } | null>(null);
   /** In-flight formation transition: where each player is easing from. */
   const transitionRef = useRef<{ from: Record<string, Point>; startedAt: number } | null>(null);
   const lastTimeSyncRef = useRef(0);
@@ -426,6 +430,39 @@ function FieldCanvas(
     // aesthetic this pass asked for.
     const idleDash = !playing && !drawing ? qbDashRef.current : 0;
 
+    // Fire the catch ripple exactly once per landing that was actually caught
+    // (a completion or an interception) — a batted-down or incomplete pass
+    // has nobody to ripple around.
+    const activeSim = simRef.current?.sim ?? null;
+    const caught =
+      activeSim?.landedAt !== null &&
+      activeSim?.ball &&
+      (activeSim.outcome === "Pass Completed!" || activeSim.outcome === "Intercepted!");
+    // Not routed through `pump()`: the idle marching-dash loop below already
+    // holds an animation frame open whenever the board isn't playing or
+    // drawing, and a catch can only happen mid-simulation, where the live
+    // playback loop is already repainting every frame regardless.
+    if (caught) {
+      if (rippleRef.current?.landedAt !== activeSim.landedAt) {
+        rippleRef.current = {
+          landedAt: activeSim.landedAt!,
+          x: activeSim.ball!.to.x,
+          y: activeSim.ball!.to.y,
+          startedAt: now,
+        };
+      }
+    } else {
+      rippleRef.current = null;
+    }
+
+    let ripple: { x: number; y: number; progress: number } | null = null;
+    if (rippleRef.current) {
+      const elapsed = now - rippleRef.current.startedAt;
+      if (elapsed <= RIPPLE_MS) {
+        ripple = { x: rippleRef.current.x, y: rippleRef.current.y, progress: elapsed / RIPPLE_MS };
+      }
+    }
+
     const box = marqueeRef.current;
     const marquee = box
       ? {
@@ -460,6 +497,7 @@ function FieldCanvas(
       transition,
       background: fieldCacheRef.current,
       theme,
+      ripple,
     });
   }, [groupIds]);
 
@@ -1265,8 +1303,6 @@ function FieldCanvas(
           duration={playbackDuration}
           events={events}
           onTogglePlay={onTogglePlay}
-          onReset={onReset}
-          onStep={onStep}
           onScrub={onScrub}
         />
       </div>

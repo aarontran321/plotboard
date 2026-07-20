@@ -10,7 +10,8 @@ interface Props {
   onName: (name: string) => void;
   onSave: () => void;
   shareEnabled: boolean;
-  shareState: ActionState;
+  /** True while the Share Play modal is in its "Saving play…" step. */
+  sharing: boolean;
   exportState: ActionState;
   onShare: () => void;
   onExport: () => void;
@@ -44,13 +45,12 @@ export default function PlayNameBar({
   onName,
   onSave,
   shareEnabled,
-  shareState,
+  sharing,
   exportState,
   onShare,
   onExport,
 }: Props) {
-  const showStatus =
-    shareState.status !== "idle" || exportState.status !== "idle" || !shareEnabled;
+  const showStatus = exportState.status !== "idle" || !shareEnabled;
 
   return (
     <div className="flex flex-col gap-2">
@@ -79,11 +79,8 @@ export default function PlayNameBar({
           <Button variant="primary" disabled={disabled} onClick={onSave}>
             Save Play
           </Button>
-          <Button
-            disabled={disabled || !shareEnabled || shareState.status === "busy"}
-            onClick={onShare}
-          >
-            {shareState.status === "busy" ? "Sharing…" : "Share Play"}
+          <Button disabled={disabled || !shareEnabled || sharing} onClick={onShare}>
+            Share Play
           </Button>
           <Button disabled={disabled || exportState.status === "busy"} onClick={onExport}>
             {exportState.status === "busy" ? "Rendering…" : "Export Play (GIF)"}
@@ -93,9 +90,7 @@ export default function PlayNameBar({
 
       {showStatus && (
         <div className="flex flex-col gap-1 px-1">
-          {shareEnabled ? (
-            <Status state={shareState} />
-          ) : (
+          {!shareEnabled && (
             <p className="text-[12px] text-[#7C8AA5]">
               Sharing is off until Supabase environment variables are set.
             </p>

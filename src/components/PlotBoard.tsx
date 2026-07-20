@@ -38,6 +38,7 @@ import { FRAME_STEP } from "./PlaybackDeck";
 import PlayChat from "./PlayChat";
 import PlayNameBar from "./PlayNameBar";
 import RightPanel, { type ActionState } from "./RightPanel";
+import ShareModal, { type ShareModalState } from "./ShareModal";
 import { CollapseButton } from "./ui";
 
 /**
@@ -100,7 +101,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const [speed, setSpeed] = useState(1);
   const [resetId, setResetId] = useState(0);
   const [transitionId, setTransitionId] = useState(0);
-  const [shareState, setShareState] = useState<ActionState>({ status: "idle" });
+  const [shareModal, setShareModal] = useState<ShareModalState>({ status: "closed" });
   const [exportState, setExportState] = useState<ActionState>({ status: "idle" });
   const [saveState, setSaveState] = useState<ActionState>({ status: "idle" });
 
@@ -398,9 +399,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     edit({ ...play, routes, passTarget: null });
   };
 
+  // With the dedicated Reset control gone, "Stop" does what it says on a
+  // media player: it halts the run AND rewinds it, rather than merely
+  // pausing in place — there is no separate button left to rewind with.
   const onTogglePlay = () => {
     if (isPlaying) {
       setIsPlaying(false);
+      setResetId((v) => v + 1);
       return;
     }
     setSelectedId(null);
@@ -486,19 +491,8 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  /** Copies text, tolerating a denied or unavailable clipboard. */
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Clipboard needs a secure context and can be denied outright.
-      return false;
-    }
-  };
-
   const onShare = async () => {
-    setShareState({ status: "busy", message: "Saving play…" });
+    setShareModal({ status: "saving" });
 
     // Every path that persists a play names it, so a shared link always arrives
     // with something in the recipient's name field.
@@ -510,12 +504,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     try {
       const result = await sharePlay(serializePlayState(named));
       if (result.ok) {
-        const url = `${window.location.origin}/play/${result.id}`;
-        const copied = await copy(url);
-        setShareState({
-          status: "done",
-          message: `${copied ? "Link copied" : "Saved"} "${name}" — ${url}`,
-        });
+        setShareModal({ status: "ready", url: `${window.location.origin}/play/${result.id}` });
         return;
       }
       remoteError = result.error;
@@ -527,16 +516,9 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     // link still works, just only in this browser.
     try {
       const id = savePlayLocal(named);
-      const url = `${window.location.origin}/play/${id}`;
-      const copied = await copy(url);
-      setShareState({
-        status: "done",
-        message:
-          `Cloud save failed (${remoteError}). Saved to this browser instead — ` +
-          `${copied ? "link copied" : url}. The link only opens here.`,
-      });
+      setShareModal({ status: "ready", url: `${window.location.origin}/play/${id}` });
     } catch {
-      setShareState({ status: "error", message: remoteError ?? "Sharing failed." });
+      setShareModal({ status: "error", message: remoteError ?? "Sharing failed." });
     }
   };
 
@@ -642,7 +624,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             onName={(name) => setPlay({ ...play, name })}
             onSave={onSavePlay}
             shareEnabled={shareEnabled}
-            shareState={shareState}
+            sharing={shareModal.status === "saving"}
             exportState={exportState}
             onShare={onShare}
             onExport={onExport}
@@ -676,7 +658,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               onFinished={() => setIsPlaying(false)}
               onPlaceTarget={onPlaceTarget}
               onTogglePlay={onTogglePlay}
-              onReset={onReset}
               onPlaybackUpdate={setPlayback}
             />
 
@@ -755,6 +736,8 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         onConfirm={onExportConfirmed}
         onCancel={() => setGifDialogOpen(false)}
       />
+
+      <ShareModal state={shareModal} onClose={() => setShareModal({ status: "closed" })} />
 
       <KeyboardShortcutsModal
         open={shortcutsOpen}

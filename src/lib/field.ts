@@ -107,7 +107,7 @@ export const COLORS = {
   nodeBorder: "#FFFFFF",
   selected: "#FACC15",
   target: "#F97316",
-  ball: "#8B4513",
+  ball: "#5C3A21",
   los: "#60A5FA",
   routeOffense: "#E2E8F0",
   /** Boundary-violation feedback: a pulsing red glow ring. */
