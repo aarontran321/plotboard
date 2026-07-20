@@ -406,6 +406,45 @@ export function simulateTo(ctx: SimContext, targetT: number, step = 1 / 120): Si
 }
 
 /**
+ * Replays a play once and records the full travelled path of one defender,
+ * timestamped, so the board can draw that defender's "yard trail" as a faint
+ * breadcrumb up to whatever frame is currently shown. Computed the same
+ * deterministic way as `computePlayEvents` — a whole replay up front — rather
+ * than accumulated in the live loop, so it survives scrubbing and pausing.
+ */
+export function computeDefenderPath(
+  ctx: SimContext,
+  defenderId: string,
+  step = 1 / 30
+): { t: number; x: number; y: number }[] {
+  const start = ctx.play.players.find((p) => p.id === defenderId);
+  if (!start) return [];
+
+  const sim = createInitialSim(ctx);
+  const path: { t: number; x: number; y: number }[] = [{ t: 0, x: start.startX, y: start.startY }];
+  let guard = 0;
+  while (!sim.finished && guard++ < 5000) {
+    stepSim(sim, ctx, step);
+    const ps = sim.players[defenderId];
+    if (ps) path.push({ t: sim.t, x: ps.x, y: ps.y });
+  }
+  return path;
+}
+
+/** Picks the defender whose movement the yard trail follows: the free safety
+ *  if one is on the field, else another deep safety, else the deepest-aligned
+ *  defender (the last line of defense is the most interesting to trace). */
+export function pickTrailDefender(play: PlayState): string | null {
+  const defenders = play.players.filter((p) => p.team === "defense");
+  if (defenders.length === 0) return null;
+  const byId = (id: string) => defenders.find((p) => p.id === id);
+  const safety = byId("FS") ?? byId("SS");
+  if (safety) return safety.id;
+  // Deepest downfield alignment = largest x, since the defense faces -x.
+  return defenders.reduce((deepest, p) => (p.startX > deepest.startX ? p : deepest)).id;
+}
+
+/**
  * Runs a play once, start to finish, recording the timestamp of each
  * milestone the play chat narrates: when the ball leaves the QB's hand, and
  * however the play ends (a clean whistle, a deflection, or an interception).

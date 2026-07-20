@@ -399,19 +399,21 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     edit({ ...play, routes, passTarget: null });
   };
 
-  // With the dedicated Reset control gone, "Stop" does what it says on a
-  // media player: it halts the run AND rewinds it, rather than merely
-  // pausing in place — there is no separate button left to rewind with.
+  // Pausing freezes on the current frame — it does not rewind. The only
+  // wrinkle is a *finished* play: pressing play there should start over rather
+  // than sit on the final frame doing nothing, so it rewinds first.
   const onTogglePlay = () => {
     if (isPlaying) {
       setIsPlaying(false);
-      setResetId((v) => v + 1);
       return;
     }
+    const finished = playback.duration > 0 && playback.t >= playback.duration - 0.001;
+    if (finished) setResetId((v) => v + 1);
     setSelectedId(null);
     setIsPlaying(true);
   };
 
+  // Restart rewinds to the first frame and leaves the play paused there.
   const onReset = () => {
     setIsPlaying(false);
     setResetId((v) => v + 1);
@@ -566,11 +568,11 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         </div>
         <div className="flex items-center gap-4 text-[11px] text-[#7C8AA5]">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#2563EB] shadow-[0_0_8px_rgba(37,99,235,0.7)]" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#38BDF8] shadow-[0_0_8px_rgba(56,189,248,0.75)]" />
             Offense
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#DC2626] shadow-[0_0_8px_rgba(220,38,38,0.7)]" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#FB923C] shadow-[0_0_8px_rgba(251,146,60,0.75)]" />
             Defense
           </span>
         </div>
@@ -658,6 +660,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               onFinished={() => setIsPlaying(false)}
               onPlaceTarget={onPlaceTarget}
               onTogglePlay={onTogglePlay}
+              onRestart={onReset}
               onPlaybackUpdate={setPlayback}
             />
 

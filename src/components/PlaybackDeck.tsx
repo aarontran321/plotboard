@@ -20,7 +20,18 @@ interface Props {
   /** Key moments (release, deflection, etc.), rendered as clickable ticks on the track. */
   events?: PlayEvent[];
   onTogglePlay: () => void;
+  /** Rewinds the play to its first frame, whether playing, frozen, or finished. */
+  onRestart: () => void;
   onScrub: (t: number) => void;
+}
+
+function RestartIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.7 0 3.2.75 4.24 1.93" strokeLinecap="round" />
+      <path d="M12 1.5v3.2h-3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function formatTime(s: number) {
@@ -33,9 +44,9 @@ function formatTime(s: number) {
 }
 
 /**
- * The playback deck: a single "Simulate Play" / "Stop" toggle plus a timeline
- * scrubber, sitting under the field. No separate skip/step/reset buttons —
- * one clean action button drives the whole simulation.
+ * The playback deck: a play/pause toggle, a Restart button, and a timeline
+ * scrubber, sitting under the field. Pausing *freezes* on the current frame
+ * (it does not reset); Restart is the only control that rewinds to the start.
  */
 export default function PlaybackDeck({
   isPlaying,
@@ -44,13 +55,21 @@ export default function PlaybackDeck({
   duration,
   events = [],
   onTogglePlay,
+  onRestart,
   onScrub,
 }: Props) {
   const hasRun = duration > 0;
   // Scrubbing while the sim is actively advancing would fight the animation
-  // loop over the same state, so scrubbing requires stopping first — the
+  // loop over the same state, so scrubbing requires pausing first — the
   // deck's toggle button is always available to get there.
   const scrubDisabled = disabled || isPlaying || !hasRun;
+
+  // "Resume" once the play has been paused partway through; "Simulate Play"
+  // from a fresh or fully-rewound state.
+  const midPlay = hasRun && t > 0.001 && t < duration - 0.001;
+  const toggleLabel = isPlaying ? "Pause" : midPlay ? "Resume" : "Simulate Play";
+  // Restart is meaningless before a run exists or when already at frame 0.
+  const restartDisabled = disabled || !hasRun || (!isPlaying && t <= 0.001);
 
   return (
     <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#0F172A]/70 px-3 py-2.5 shadow-[0_8px_24px_-10px_rgba(0,0,0,0.5)] backdrop-blur-xl">
@@ -60,7 +79,18 @@ export default function PlaybackDeck({
         variant={isPlaying ? "danger" : "primary"}
         className="!px-4"
       >
-        {isPlaying ? "Stop" : "Simulate Play"}
+        {toggleLabel}
+      </Button>
+
+      <Button
+        disabled={restartDisabled}
+        onClick={onRestart}
+        aria-label="Restart play"
+        title="Restart play"
+        className="flex items-center gap-1.5 !px-3"
+      >
+        <RestartIcon />
+        Restart
       </Button>
 
       <div className="relative flex-1">

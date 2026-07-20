@@ -21,10 +21,12 @@ import { snapshot, type Snapshot } from "@/lib/history";
 import { drawField, drawScene } from "@/lib/render";
 import { buildPresetRoute } from "@/lib/routePresets";
 import {
+  computeDefenderPath,
   computeExactDuration,
   computePlayEvents,
   createContext,
   createInitialSim,
+  pickTrailDefender,
   simulateTo,
   stepSim,
   type SimContext,
@@ -60,6 +62,8 @@ interface Props {
   /** A target was placed (snapped to a receiver/route, or dropped free). */
   onPlaceTarget: (target: PassTarget) => void;
   onTogglePlay: () => void;
+  /** Rewinds the loaded run to its first frame. */
+  onRestart: () => void;
   /**
    * Fires whenever the playhead moves (live playback, a scrub, a step, or a
    * reset) and whenever the authored play changes its exact duration. This
@@ -161,6 +165,7 @@ function FieldCanvas(
     onFinished,
     onPlaceTarget,
     onTogglePlay,
+    onRestart,
     onPlaybackUpdate,
   }: Props,
   ref: React.ForwardedRef<FieldCanvasHandle>
@@ -173,6 +178,17 @@ function FieldCanvas(
   // Key moments for the deck's timeline ticks — the same replay `PlayChat`
   // builds its feed from, so a moment lands on the same timestamp everywhere.
   const events = useMemo(() => computePlayEvents(createContext(play)), [play]);
+
+  // The keyed defender's full travelled path, precomputed like `events`, so the
+  // "yard trail" can be drawn up to any frame during playback or a scrub.
+  const defenderPath = useMemo(() => {
+    const id = pickTrailDefender(play);
+    return id ? computeDefenderPath(createContext(play), id) : [];
+  }, [play]);
+  const defenderPathRef = useRef(defenderPath);
+  useEffect(() => {
+    defenderPathRef.current = defenderPath;
+  });
 
   // Tokens dragged together as a group (shift-click to build one). Cleared
   // whenever the primary selection is cleared or draw mode is toggled on.
@@ -345,22 +361,28 @@ function FieldCanvas(
     return entry;
   }, []);
 
+  // Declared *before* the play-start effect so that when a Restart-then-play
+  // bumps `resetId` and `isPlaying` in the same commit, this tears the old sim
+  // down first and the effect below then rebuilds a fresh one — otherwise the
+  // stale finished sim would survive and playback would sit stuck at the end.
+  useEffect(() => {
+    if (resetId === 0) return;
+    // `resetId` is a counter prop the parent bumps on Restart; tearing the sim
+    // down (and zeroing the playback readout with it) is what "reset" means.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see note above
+    invalidateSim();
+  }, [resetId, invalidateSim]);
+
   // Pressing Play creates a fresh run only if none is loaded — a paused or
   // seeked simulation resumes exactly where it was, rather than restarting.
+  // Depends on `resetId` too so a restart-then-play rebuilds after the teardown
+  // above has run in the same commit.
   useEffect(() => {
     if (!isPlaying || simRef.current) return;
     const ctx = createContext(latest.current.play);
     simRef.current = { ctx, sim: createInitialSim(ctx) };
     notifiedRef.current = false;
-  }, [isPlaying]);
-
-  useEffect(() => {
-    if (resetId === 0) return;
-    // `resetId` is a counter prop the parent bumps on Reset; tearing the sim
-    // down (and zeroing the playback readout with it) is what "reset" means.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- see note above
-    invalidateSim();
-  }, [resetId, invalidateSim]);
+  }, [isPlaying, resetId]);
 
   // --- Rendering ------------------------------------------------------------
 
@@ -463,6 +485,14 @@ function FieldCanvas(
       }
     }
 
+    // The defensive yard trail only makes sense once a run is loaded; it grows
+    // as the frozen/live playhead advances, so it is truncated to `sim.t`.
+    let defenseTrail: Point[] | null = null;
+    const simT = activeSim?.t;
+    if (activeSim && simT !== undefined && defenderPathRef.current.length > 1) {
+      defenseTrail = defenderPathRef.current.filter((pt) => pt.t <= simT).map((pt) => ({ x: pt.x, y: pt.y }));
+    }
+
     const box = marqueeRef.current;
     const marquee = box
       ? {
@@ -498,6 +528,7 @@ function FieldCanvas(
       background: fieldCacheRef.current,
       theme,
       ripple,
+      defenseTrail,
     });
   }, [groupIds]);
 
@@ -1303,6 +1334,7 @@ function FieldCanvas(
           duration={playbackDuration}
           events={events}
           onTogglePlay={onTogglePlay}
+          onRestart={onRestart}
           onScrub={onScrub}
         />
       </div>

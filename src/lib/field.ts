@@ -93,11 +93,13 @@ export const CATCH_RADIUS = 2.2;
  * for the chalkboard theme below, so tokens stay equally readable either way.
  */
 export const COLORS = {
-  grass: "#14532D",
-  grassStripe: "#12492A",
-  endzone: "#0F3D22",
-  line: "#F8FAFC",
-  lineSoft: "#CBD5E1",
+  // A deep, muted charcoal–forest field, so the glowing role tokens read as
+  // the brightest thing on the board rather than competing with the turf.
+  grass: "#17251C",
+  grassStripe: "#1B2C22",
+  endzone: "#121A1E",
+  line: "#E7EDF3",
+  lineSoft: "#8FA0AE",
   offense: "#2563EB",
   offenseLight: "#93C5FD",
   offenseDark: "#1E3A8A",
@@ -117,6 +119,24 @@ export const COLORS = {
   passingLane: "#38BDF8",
   deflected: "#FB923C",
   possession: "#FACC15",
+
+  // --- Role token palette -------------------------------------------------
+  // Colour is by *role*, not team: skill players glow (ice-blue on offense,
+  // soft-orange on defense) while interior linemen are quiet dark chips, so
+  // the eye tracks the players who actually move the ball.
+  tokenBlue: "#38BDF8",
+  tokenBlueSoft: "#BAE6FD",
+  tokenBlueDeep: "#0B2A44",
+  tokenOrange: "#FB923C",
+  tokenOrangeSoft: "#FED7AA",
+  tokenOrangeDeep: "#3A230F",
+  tokenLineFill: "#232B36",
+  tokenLineBorder: "#4B5563",
+
+  /** Endzone brackets: the "home" side (left) reads blue, the "visitor" side
+   *  (right) gold, matching the two-tone scoreboard look. */
+  bracketHome: "#38BDF8",
+  bracketVisitor: "#FBBF24",
 } as const;
 
 /** A colour palette shaped like `COLORS`, widened to plain strings so a theme can override individual entries. */
@@ -155,6 +175,19 @@ export const EVENT_KIND_COLOR: Record<"release" | "deflected" | "interception" |
 
 export function paletteForTheme(theme: FieldTheme): Palette {
   return theme === "chalkboard" ? CHALK_COLORS : COLORS;
+}
+
+/** How a token is drawn, keyed off role rather than team. */
+export type TokenRole = "offense-skill" | "defense-skill" | "line";
+
+/**
+ * Interior linemen (the offensive centre and any defensive line) render as
+ * quiet dark chips; every other player is a glowing skill token in their
+ * side's colour. Classifying by id keeps this stable as personnel changes.
+ */
+export function tokenRole(id: string, team: "offense" | "defense"): TokenRole {
+  if (team === "offense") return id === "C" ? "line" : "offense-skill";
+  return id.startsWith("DL") ? "line" : "defense-skill";
 }
 
 /** Maps world yards to screen pixels for a canvas of a given CSS width. */

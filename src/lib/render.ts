@@ -10,9 +10,11 @@ import {
   ROUTE_HANDLE_GAP,
   dist,
   paletteForTheme,
+  tokenRole,
   yardNumberAt,
   type FieldTheme,
   type Palette,
+  type TokenRole,
   type View,
 } from "./field";
 import { zoneAssignments } from "./formations";
@@ -103,6 +105,48 @@ function drawEndzoneHatch(ctx: Ctx, v: View, x0: number, width: number, palette:
   ctx.restore();
 }
 
+/**
+ * A tall vertical bracket down one endzone with a rotated "PLOTBOARD"
+ * wordmark, giving each end a distinct scoreboard-style header (blue home /
+ * gold visitor). Drawn into the cached field, so it costs nothing per frame.
+ */
+function drawEndzoneBracket(ctx: Ctx, v: View, side: "left" | "right", color: string) {
+  const top = FIELD_WIDTH * 0.16;
+  const bottom = FIELD_WIDTH * 0.84;
+  // The vertical stroke sits a little inside the endzone; the small caps turn
+  // toward the field of play so the shape reads as a bracket, not a line.
+  const barX = side === "left" ? ENDZONE_DEPTH * 0.34 : FIELD_LENGTH - ENDZONE_DEPTH * 0.34;
+  const cap = (side === "left" ? 1 : -1) * ENDZONE_DEPTH * 0.22;
+  const textX = side === "left" ? ENDZONE_DEPTH * 0.62 : FIELD_LENGTH - ENDZONE_DEPTH * 0.62;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.5, 0.28 * v.scale);
+  ctx.lineCap = "round";
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  ctx.moveTo((barX + cap) * v.scale, top * v.scale);
+  ctx.lineTo(barX * v.scale, top * v.scale);
+  ctx.lineTo(barX * v.scale, bottom * v.scale);
+  ctx.lineTo((barX + cap) * v.scale, bottom * v.scale);
+  ctx.stroke();
+
+  ctx.translate(textX * v.scale, (FIELD_WIDTH / 2) * v.scale);
+  ctx.rotate(side === "left" ? -Math.PI / 2 : Math.PI / 2);
+  ctx.font = `800 ${Math.max(9, 2.2 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.9;
+  const label = "PLOTBOARD";
+  const spacing = Math.max(1, 0.35 * v.scale);
+  if ("letterSpacing" in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${spacing}px`;
+  }
+  ctx.fillText(label, 0, 0);
+  ctx.restore();
+}
+
 export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
   const { texture = true, theme = "turf" } = opts;
   const palette = paletteForTheme(theme);
@@ -165,24 +209,11 @@ export function drawField(ctx: Ctx, v: View, opts: FieldOptions = {}) {
   }
   ctx.globalAlpha = 1;
 
-  // Endzone wordmarks, rotated to read from the back of each endzone, with a
-  // bold outlined treatment so they read as a distinct typographic texture.
-  const drawWordmark = (x: number, rotate: number) => {
-    ctx.save();
-    ctx.font = `800 ${Math.max(10, 2.8 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
-    ctx.translate(x * v.scale, (FIELD_WIDTH / 2) * v.scale);
-    ctx.rotate(rotate);
-    ctx.lineWidth = Math.max(1, 0.12 * v.scale);
-    ctx.strokeStyle = palette.line;
-    ctx.globalAlpha = 0.22;
-    ctx.strokeText("END ZONE", 0, 0);
-    ctx.fillStyle = palette.line;
-    ctx.globalAlpha = 0.3;
-    ctx.fillText("END ZONE", 0, 0);
-    ctx.restore();
-  };
-  drawWordmark(5, -Math.PI / 2);
-  drawWordmark(FIELD_LENGTH - 5, Math.PI / 2);
+  // Endzone brackets: a tall two-tone frame — blue on the home (left) side,
+  // gold on the visitor (right) — with a vertical "PLOTBOARD" wordmark, in
+  // place of the old plain "END ZONE" text.
+  drawEndzoneBracket(ctx, v, "left", palette.bracketHome);
+  drawEndzoneBracket(ctx, v, "right", palette.bracketVisitor);
 
   // Sidelines and goal lines.
   ctx.globalAlpha = 1;
@@ -274,6 +305,30 @@ export function drawRoute(
   drawRouteCap(ctx, v, points, highlighted ? COLORS.passingLane : color);
 }
 
+/**
+ * The defensive yard trail: a faint, dashed soft-orange breadcrumb tracing
+ * where a keyed defender (the free safety) has travelled so far this play.
+ * Deliberately much fainter and thinner than an offensive route so it reads
+ * as movement history, not a drawn assignment.
+ */
+export function drawDefenseTrail(ctx: Ctx, v: View, points: Point[]) {
+  if (points.length < 2) return;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.setLineDash([4, 5]);
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = COLORS.tokenOrange;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(points[0].x * v.scale, points[0].y * v.scale);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x * v.scale, points[i].y * v.scale);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** A flat arrowhead marking which way the route runs. */
 function drawRouteCap(ctx: Ctx, v: View, points: Point[], color: string) {
   const end = points[points.length - 1];
@@ -354,33 +409,6 @@ export function drawPassTarget(ctx: Ctx, v: View, target: PassTarget) {
   ctx.restore();
 }
 
-/** A small five-pointed star, used as the QB's badge. Fill only, no glow. */
-function drawStar(ctx: Ctx, cx: number, cy: number, r: number, color: string) {
-  const spikes = 5;
-  const step = Math.PI / spikes;
-  const inner = r * 0.45;
-
-  ctx.save();
-  ctx.beginPath();
-  let rot = -Math.PI / 2;
-  ctx.moveTo(cx + Math.cos(rot) * r, cy + Math.sin(rot) * r);
-  for (let i = 0; i < spikes; i++) {
-    rot += step;
-    ctx.lineTo(cx + Math.cos(rot) * inner, cy + Math.sin(rot) * inner);
-    rot += step;
-    ctx.lineTo(cx + Math.cos(rot) * r, cy + Math.sin(rot) * r);
-  }
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.lineWidth = 0.75;
-  ctx.strokeStyle = "#78350F";
-  ctx.stroke();
-  ctx.restore();
-}
-
-const QB_GOLD = "#EAB308";
-
 export interface PlayerStyle {
   selected?: boolean;
   isQB?: boolean;
@@ -399,6 +427,38 @@ export interface PlayerStyle {
   hasBall?: boolean;
   /** The cursor is over this token — a distinguishing ring for dense clusters. */
   hovered?: boolean;
+  /** Which token treatment to draw: glowing skill token vs. quiet lineman chip. */
+  variant?: TokenRole;
+}
+
+/** Per-variant token colours: glow accent, gradient stops, ring and text. */
+function tokenPalette(variant: TokenRole) {
+  switch (variant) {
+    case "offense-skill":
+      return {
+        glow: COLORS.tokenBlue,
+        top: COLORS.tokenBlueSoft,
+        bottom: COLORS.tokenBlueDeep,
+        ring: COLORS.tokenBlue,
+        text: "#F0F9FF",
+      };
+    case "defense-skill":
+      return {
+        glow: COLORS.tokenOrange,
+        top: COLORS.tokenOrangeSoft,
+        bottom: COLORS.tokenOrangeDeep,
+        ring: COLORS.tokenOrange,
+        text: "#FFF7ED",
+      };
+    case "line":
+      return {
+        glow: null,
+        top: "#3A4452",
+        bottom: COLORS.tokenLineFill,
+        ring: COLORS.tokenLineBorder,
+        text: "#CBD5E1",
+      };
+  }
 }
 
 /** Hover ring colour — deliberately distinct from selection (gold), the
@@ -457,6 +517,7 @@ export function drawPlayer(
     shimmer = 0,
     hasBall = false,
     hovered = false,
+    variant = team === "offense" ? "offense-skill" : "defense-skill",
   } = style;
   const cx = pos.x * v.scale;
   const cy = pos.y * v.scale;
@@ -528,92 +589,76 @@ export function drawPlayer(
     ctx.restore();
   }
 
-  // The QB is the anchor of the play, so it gets a second, outer gold ring —
-  // set apart from the selection ring, which uses the same yellow family.
-  if (isQB) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = QB_GOLD;
-    ctx.stroke();
-  }
+  const pal = tokenPalette(variant);
+  const isLine = variant === "line";
 
-  // Tactile whiteboard-piece body: a radial gradient reading as a rounded 3D
-  // piece, plus a drop shadow so the token appears to sit above the field.
-  const light = team === "offense" ? COLORS.offenseLight : COLORS.defenseLight;
-  const base = team === "offense" ? COLORS.offense : COLORS.defense;
-  const dark = team === "offense" ? COLORS.offenseDark : COLORS.defenseDark;
-  const grad = ctx.createRadialGradient(
-    cx - r * 0.35,
-    cy - r * 0.4,
-    r * 0.1,
-    cx,
-    cy,
-    r * 1.15
-  );
-  grad.addColorStop(0, light);
-  grad.addColorStop(0.55, base);
-  grad.addColorStop(1, dark);
+  // The token body: a round chip with a radial gradient. Skill tokens carry a
+  // soft coloured glow (blue on offense, orange on defense); linemen are quiet
+  // dark chips with only a subtle drop shadow, so the eye tracks skill players.
+  const grad = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r * 1.15);
+  grad.addColorStop(0, pal.top);
+  grad.addColorStop(1, pal.bottom);
 
-  // Drop shadow cast onto the turf, so the token reads as sitting physically
-  // above the field rather than painted onto it.
   ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.45)";
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 4;
+  if (pal.glow && !isLine) {
+    ctx.shadowColor = pal.glow;
+    ctx.shadowBlur = selected ? 16 : 11;
+  } else {
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 3;
+  }
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
 
-  ctx.lineWidth = isQB ? 2.5 : 2;
-  ctx.strokeStyle = isQB ? QB_GOLD : COLORS.nodeBorder;
+  ctx.lineWidth = isLine ? 1.5 : 2;
+  ctx.strokeStyle = pal.ring;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.stroke();
 
-  // A glossy top-left highlight arc, so the piece reads as rounded rather than flat.
+  // A glossy top-left highlight arc, so the chip reads as rounded, not flat.
   ctx.save();
-  ctx.globalAlpha = 0.35;
+  ctx.globalAlpha = isLine ? 0.2 : 0.32;
   ctx.beginPath();
   ctx.ellipse(cx - r * 0.32, cy - r * 0.4, r * 0.55, r * 0.32, -0.5, 0, Math.PI * 2);
   ctx.fillStyle = "#FFFFFF";
   ctx.fill();
   ctx.restore();
 
-  // A single ring in the player's own team color, breathing in scale and
-  // opacity — replaces the old dual yellow rings (selection + QB) which read
-  // as one indicator when both applied to the same token.
+  // A single selection ring in the token's own accent colour, breathing in
+  // scale and opacity.
   if (selected) {
-    const teamColor = team === "offense" ? COLORS.offense : COLORS.defense;
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
     ctx.save();
     ctx.globalAlpha = 0.55 + 0.35 * pulse;
     ctx.beginPath();
-    ctx.arc(cx, cy, r + (isQB ? 8.5 : 3.5) + pulse * 1.5, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r + 3.5 + pulse * 1.5, 0, Math.PI * 2);
     ctx.lineWidth = 2;
-    ctx.strokeStyle = teamColor;
+    ctx.strokeStyle = pal.ring;
     ctx.stroke();
     ctx.restore();
   }
 
-  // Shrink the label until it fits inside the node.
-  ctx.fillStyle = "#FFFFFF";
+  // Shrink the label until it fits inside the chip.
+  ctx.fillStyle = pal.text;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.shadowColor = "rgba(0,0,0,0.5)";
   ctx.shadowBlur = 2;
-  let size = r * 0.92;
-  ctx.font = `${isQB ? 800 : 700} ${size}px ui-sans-serif, system-ui, sans-serif`;
+  let size = r * 0.9;
+  const weight = isQB ? 800 : 700;
+  ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, sans-serif`;
   const maxWidth = r * 1.7;
   if (ctx.measureText(label).width > maxWidth) {
     size *= maxWidth / ctx.measureText(label).width;
-    ctx.font = `${isQB ? 800 : 700} ${size}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, sans-serif`;
   }
   ctx.fillText(label, cx, cy);
 
-  if (isQB) drawStar(ctx, cx + r * 0.85, cy - r * 0.85, r * 0.36, QB_GOLD);
   if (hasBall) drawBallBadge(ctx, cx, cy, r);
 
   ctx.restore();
@@ -694,55 +739,42 @@ export function drawRipple(ctx: Ctx, v: View, point: Point, progress: number) {
 }
 
 /**
- * The outcome banner — an impactful, glowing pill that pulses to make the
- * moment feel bigger than the flat text alone would. Reads `performance.now()`
- * directly for its pulse phase: this module already talks to the DOM (canvas
- * patterns), so there is no purity to protect by threading a clock through.
+ * The outcome banner — a sleek, low-profile pill floating near the top of the
+ * field. Deliberately minimal: a semi-transparent charcoal background with a
+ * thin muted border and clean, uppercase, letter-spaced text. No glow, drop
+ * shadow, or pulse — the words carry the moment, not the effects.
  */
 export function drawBanner(ctx: Ctx, v: View, text: string) {
-  const accent =
-    text === "Intercepted!"
-      ? "#F87171"
-      : text === "Pass Completed!"
-        ? "#4ADE80"
-        : text === "Pass Deflected!"
-          ? COLORS.deflected
-          : "#E5E7EB";
+  // Uppercase, no trailing punctuation — a scoreboard-caption voice.
+  const label = text.replace(/!$/, "").toUpperCase();
+  const spacing = Math.max(1.5, 0.32 * v.scale);
 
   ctx.save();
-  ctx.font = `800 ${Math.max(12, 2.2 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.font = `600 ${Math.max(11, 1.7 * v.scale)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  if ("letterSpacing" in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${spacing}px`;
+  }
 
-  const padX = 20;
-  const w = ctx.measureText(text).width + padX * 2;
-  const h = Math.max(30, 3.8 * v.scale);
+  const padX = Math.max(16, 1.8 * v.scale);
+  // measureText already accounts for letterSpacing where it is supported.
+  const w = ctx.measureText(label).width + padX * 2;
+  const h = Math.max(26, 3.1 * v.scale);
   const x = v.width / 2 - w / 2;
   const y = 12;
   const radius = h / 2;
-  const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 260);
 
-  const bg = ctx.createLinearGradient(x, y, x, y + h);
-  bg.addColorStop(0, "#1E293B");
-  bg.addColorStop(1, "#0B1120");
-
-  ctx.save();
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 22 * pulse;
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, radius);
-  ctx.fillStyle = bg;
+  ctx.fillStyle = "rgba(15,20,28,0.78)";
   ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = accent;
-  ctx.globalAlpha = 0.6 + 0.4 * pulse;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.16)";
   ctx.stroke();
-  ctx.restore();
 
-  ctx.fillStyle = accent;
-  ctx.shadowColor = accent;
-  ctx.shadowBlur = 8;
-  ctx.fillText(text, v.width / 2, y + h / 2);
+  ctx.fillStyle = "#E7EDF3";
+  ctx.fillText(label, v.width / 2, y + h / 2 + 0.5);
   ctx.restore();
 }
 
@@ -895,6 +927,9 @@ export interface SceneOptions {
   /** Present for a short window right after a catch (completed or intercepted):
    *  an expanding, fading ripple centred on the catch point. `progress` is 0..1. */
   ripple?: { x: number; y: number; progress: number } | null;
+  /** The keyed defender's travelled path so far this play, drawn as a faint
+   *  dashed breadcrumb. Points are already truncated to the current frame. */
+  defenseTrail?: Point[] | null;
 }
 
 /**
@@ -938,6 +973,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
     theme = "turf",
     hoveredId,
     ripple,
+    defenseTrail,
   } = opts;
 
   if (background) ctx.drawImage(background, 0, 0, v.width, v.height);
@@ -969,6 +1005,10 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
 
   if (draftRoute && draftRoute.length >= 2) {
     drawRoute(ctx, v, draftRoute, COLORS.selected);
+  }
+
+  if (defenseTrail && defenseTrail.length >= 2) {
+    drawDefenseTrail(ctx, v, defenseTrail);
   }
 
   if (qbGuide) {
@@ -1019,6 +1059,7 @@ export function drawScene(ctx: Ctx, v: View, opts: SceneOptions) {
       shimmer: shimmer ?? 0,
       hasBall: p.id === carrierId,
       hovered: p.id === hoveredId,
+      variant: tokenRole(p.id, p.team),
     });
   }
 
