@@ -2,7 +2,7 @@
 
 import { EVENT_KIND_COLOR } from "@/lib/field";
 import type { PlayEvent } from "@/lib/types";
-import { Badge, Button } from "./ui";
+import { Button } from "./ui";
 
 /**
  * Scrubbing granularity, in seconds. Doubles as the step-forward/back
@@ -132,9 +132,13 @@ export default function PlaybackDeck({
         )}
       </div>
 
-      <Badge>
-        {formatTime(t)} / {hasRun ? formatTime(duration) : "--:--"}
-      </Badge>
+      {/* Clean tabular-figure sans readout (no monospace), so the clock stays
+          aligned as digits change without the typewriter look. */}
+      <span className="shrink-0 font-sans text-[13px] font-semibold tracking-tight text-[#CBD5E1] tabular-nums">
+        <span className="text-[#7DD3FC]">{formatTime(t)}</span>
+        <span className="mx-1 text-[#475569]">/</span>
+        <span>{hasRun ? formatTime(duration) : "--:--"}</span>
+      </span>
     </div>
   );
 }

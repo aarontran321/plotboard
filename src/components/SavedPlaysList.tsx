@@ -51,7 +51,7 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
                 "disabled:cursor-not-allowed disabled:opacity-40 " +
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38BDF8] " +
                 (active
-                  ? "border-sky-400/40 bg-gradient-to-b from-sky-500 to-blue-600 text-white shadow-[0_4px_14px_-4px_rgba(14,165,233,0.6)]"
+                  ? "border-sky-400/50 bg-[#1E293B] text-white"
                   : "border-white/[0.06] bg-[#1A2336]/70 text-[#E5E7EB] enabled:hover:bg-[#232E45]/80")
               }
             >

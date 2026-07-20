@@ -568,11 +568,11 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         </div>
         <div className="flex items-center gap-4 text-[11px] text-[#7C8AA5]">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#38BDF8] shadow-[0_0_8px_rgba(56,189,248,0.75)]" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#3B82F6] shadow-[0_0_8px_rgba(59,130,246,0.7)]" />
             Offense
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#FB923C] shadow-[0_0_8px_rgba(251,146,60,0.75)]" />
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#DC2626] shadow-[0_0_8px_rgba(220,38,38,0.7)]" />
             Defense
           </span>
         </div>

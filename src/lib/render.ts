@@ -306,10 +306,10 @@ export function drawRoute(
 }
 
 /**
- * The defensive yard trail: a faint, dashed soft-orange breadcrumb tracing
- * where a keyed defender (the free safety) has travelled so far this play.
- * Deliberately much fainter and thinner than an offensive route so it reads
- * as movement history, not a drawn assignment.
+ * The defensive yard trail: a faint, dashed red breadcrumb tracing where a
+ * keyed defender (the free safety) has travelled so far this play. Deliberately
+ * much fainter and thinner than an offensive route so it reads as movement
+ * history, not a drawn assignment. Red to match the opposing team's tokens.
  */
 export function drawDefenseTrail(ctx: Ctx, v: View, points: Point[]) {
   if (points.length < 2) return;
@@ -317,7 +317,7 @@ export function drawDefenseTrail(ctx: Ctx, v: View, points: Point[]) {
   ctx.globalAlpha = 0.5;
   ctx.setLineDash([4, 5]);
   ctx.lineWidth = 1.4;
-  ctx.strokeStyle = COLORS.tokenOrange;
+  ctx.strokeStyle = COLORS.defense;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
@@ -431,34 +431,21 @@ export interface PlayerStyle {
   variant?: TokenRole;
 }
 
-/** Per-variant token colours: glow accent, gradient stops, ring and text. */
-function tokenPalette(variant: TokenRole) {
-  switch (variant) {
-    case "offense-skill":
-      return {
-        glow: COLORS.tokenBlue,
-        top: COLORS.tokenBlueSoft,
-        bottom: COLORS.tokenBlueDeep,
-        ring: COLORS.tokenBlue,
-        text: "#F0F9FF",
-      };
-    case "defense-skill":
-      return {
-        glow: COLORS.tokenOrange,
-        top: COLORS.tokenOrangeSoft,
-        bottom: COLORS.tokenOrangeDeep,
-        ring: COLORS.tokenOrange,
-        text: "#FFF7ED",
-      };
-    case "line":
-      return {
-        glow: null,
-        top: "#3A4452",
-        bottom: COLORS.tokenLineFill,
-        ring: COLORS.tokenLineBorder,
-        text: "#CBD5E1",
-      };
+/**
+ * Token colours by team: blue for our own side, red for the opponent. Interior
+ * linemen use a darker, desaturated shade of the same team colour so skill
+ * players stand out — but they stay recognisably blue/red, never charcoal.
+ * Flat gradient stops and a plain border; no glossy highlight or coloured glow.
+ */
+function tokenPalette(team: "offense" | "defense", isLine: boolean) {
+  if (team === "offense") {
+    return isLine
+      ? { top: "#3D5A8A", bottom: "#172845", ring: "#4C6BA3", text: "#DBE7FF" }
+      : { top: COLORS.offenseLight, bottom: COLORS.offenseDark, ring: "#3B82F6", text: "#F0F6FF" };
   }
+  return isLine
+    ? { top: "#8A4444", bottom: "#3A1616", ring: "#A85454", text: "#FFE4E4" }
+    : { top: COLORS.defenseLight, bottom: COLORS.defenseDark, ring: "#EF4444", text: "#FFF0F0" };
 }
 
 /** Hover ring colour — deliberately distinct from selection (gold), the
@@ -589,25 +576,19 @@ export function drawPlayer(
     ctx.restore();
   }
 
-  const pal = tokenPalette(variant);
   const isLine = variant === "line";
+  const pal = tokenPalette(team, isLine);
 
-  // The token body: a round chip with a radial gradient. Skill tokens carry a
-  // soft coloured glow (blue on offense, orange on defense); linemen are quiet
-  // dark chips with only a subtle drop shadow, so the eye tracks skill players.
+  // The token body: a round chip with a soft radial gradient and a plain dark
+  // drop shadow for depth. No glossy highlight and no coloured glow.
   const grad = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r * 1.15);
   grad.addColorStop(0, pal.top);
   grad.addColorStop(1, pal.bottom);
 
   ctx.save();
-  if (pal.glow && !isLine) {
-    ctx.shadowColor = pal.glow;
-    ctx.shadowBlur = selected ? 16 : 11;
-  } else {
-    ctx.shadowColor = "rgba(0,0,0,0.45)";
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 3;
-  }
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 3;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = grad;
@@ -619,15 +600,6 @@ export function drawPlayer(
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.stroke();
-
-  // A glossy top-left highlight arc, so the chip reads as rounded, not flat.
-  ctx.save();
-  ctx.globalAlpha = isLine ? 0.2 : 0.32;
-  ctx.beginPath();
-  ctx.ellipse(cx - r * 0.32, cy - r * 0.4, r * 0.55, r * 0.32, -0.5, 0, Math.PI * 2);
-  ctx.fillStyle = "#FFFFFF";
-  ctx.fill();
-  ctx.restore();
 
   // A single selection ring in the token's own accent colour, breathing in
   // scale and opacity.

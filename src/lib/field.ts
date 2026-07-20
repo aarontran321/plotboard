@@ -93,13 +93,13 @@ export const CATCH_RADIUS = 2.2;
  * for the chalkboard theme below, so tokens stay equally readable either way.
  */
 export const COLORS = {
-  // A deep, muted charcoal–forest field, so the glowing role tokens read as
-  // the brightest thing on the board rather than competing with the turf.
-  grass: "#17251C",
-  grassStripe: "#1B2C22",
-  endzone: "#121A1E",
-  line: "#E7EDF3",
-  lineSoft: "#8FA0AE",
+  grass: "#14532D",
+  grassStripe: "#12492A",
+  endzone: "#0F3D22",
+  line: "#F8FAFC",
+  lineSoft: "#CBD5E1",
+  // Own team is blue, the opposing team red — applied to every player of that
+  // side (skill and linemen alike), with linemen only a darker shade.
   offense: "#2563EB",
   offenseLight: "#93C5FD",
   offenseDark: "#1E3A8A",
@@ -119,19 +119,6 @@ export const COLORS = {
   passingLane: "#38BDF8",
   deflected: "#FB923C",
   possession: "#FACC15",
-
-  // --- Role token palette -------------------------------------------------
-  // Colour is by *role*, not team: skill players glow (ice-blue on offense,
-  // soft-orange on defense) while interior linemen are quiet dark chips, so
-  // the eye tracks the players who actually move the ball.
-  tokenBlue: "#38BDF8",
-  tokenBlueSoft: "#BAE6FD",
-  tokenBlueDeep: "#0B2A44",
-  tokenOrange: "#FB923C",
-  tokenOrangeSoft: "#FED7AA",
-  tokenOrangeDeep: "#3A230F",
-  tokenLineFill: "#232B36",
-  tokenLineBorder: "#4B5563",
 
   /** Endzone brackets: the "home" side (left) reads blue, the "visitor" side
    *  (right) gold, matching the two-tone scoreboard look. */

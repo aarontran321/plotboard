@@ -1197,6 +1197,31 @@ function FieldCanvas(
     setMenu({ id: hitId, x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
 
+  /**
+   * Instant throw: double-click any eligible receiver (or a point on their
+   * route) to make the quarterback throw there — no need to select the QB, arm
+   * the Pass Target Tool, or be in a particular mode. This is the quickest way
+   * to say "throw to this guy". Double-clicking open field or a non-receiver
+   * does nothing, so a stray double-click never drops a target in space.
+   */
+  const onCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isPlaying || isPlacingPassTarget || drawMode) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const world = toWorld(viewRef.current, e.clientX - rect.left, e.clientY - rect.top);
+
+    const routeHit = routePointAt(world);
+    const receiver = routeHit ? null : eligibleReceiverAt(world);
+    if (!routeHit && !receiver) return;
+
+    const target: PassTarget = routeHit
+      ? { x: routeHit.point.x, y: routeHit.point.y, receiverId: routeHit.receiverId, t: routeHit.t }
+      : { x: receiver!.startX, y: receiver!.startY, receiverId: receiver!.id, t: 0 };
+
+    const before = snapshot(play);
+    onCommit(before);
+    onPlayChange({ ...play, passTarget: target });
+  };
+
   const menuPlayer = menu ? (play.players.find((p) => p.id === menu.id) ?? null) : null;
   const menuHasRoute = menu ? Boolean(play.routes[menu.id]?.length) : false;
   const menuCanSetPrimary = Boolean(
@@ -1286,6 +1311,7 @@ function FieldCanvas(
         onPointerUp={endInteraction}
         onPointerCancel={endInteraction}
         onContextMenu={onCanvasContextMenu}
+        onDoubleClick={onCanvasDoubleClick}
         onPointerLeave={() => {
           if (interactionRef.current.kind !== "none") return;
           if (
