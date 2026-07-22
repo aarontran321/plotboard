@@ -95,10 +95,6 @@ function unionRect(rects: DOMRect[]): DOMRect {
   return new DOMRect(left, top, right - left, bottom - top);
 }
 
-function clamp(v: number, min: number, max: number) {
-  return Math.min(Math.max(v, min), max);
-}
-
 interface Band {
   top: number;
   left: number;
@@ -129,6 +125,62 @@ interface Measured {
 
 const ALL_SECTIONS: TourSection[] = ["field", "left", "bottom", "right"];
 
+interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where a ray from `rect`'s center toward (towardX, towardY) exits the
+ * rect's border. Standard "arrow from box center toward a target" formula:
+ * scale the direction vector down until whichever axis hits the half-width
+ * or half-height first.
+ */
+function rectExitPoint(rect: DOMRect, towardX: number, towardY: number): Point {
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const scaleX = dx !== 0 ? rect.width / 2 / Math.abs(dx) : Infinity;
+  const scaleY = dy !== 0 ? rect.height / 2 / Math.abs(dy) : Infinity;
+  const scale = Math.min(scaleX, scaleY);
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+function rectsOverlap(a: DOMRect, b: DOMRect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+interface Connector {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/**
+ * The beam that visually ties the fixed, centered showcase card back to
+ * whichever section is spotlighted. Drawn from where the card-center→hole-
+ * center ray exits the card to where it exits the hole, so it always starts
+ * flush against the card's edge and ends flush against the target's edge
+ * rather than cutting across either box.
+ *
+ * Returns `null` when the two rects overlap (the "field" step's hole is
+ * large enough to sit under the centered card) — a beam pointing from inside
+ * a box back to its own edge reads as a glitch, not a connection, and the
+ * spotlight ring on the target plus the card sitting right on top of it is
+ * anchor enough on its own.
+ */
+function computeConnector(card: DOMRect, hole: DOMRect): Connector | null {
+  if (rectsOverlap(card, hole)) return null;
+  const holeCenter = { x: hole.left + hole.width / 2, y: hole.top + hole.height / 2 };
+  const cardCenter = { x: card.left + card.width / 2, y: card.top + card.height / 2 };
+  const start = rectExitPoint(card, holeCenter.x, holeCenter.y);
+  const end = rectExitPoint(hole, cardCenter.x, cardCenter.y);
+  return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+}
+
 interface Props {
   open: boolean;
   getSectionEls: (section: TourSection) => HTMLElement[];
@@ -139,18 +191,21 @@ interface Props {
 }
 
 /**
- * A four-step spotlight tour: the rest of the board renders as flat grey
- * "skeleton" placeholders while the step's target section is lifted above a
- * dark backdrop (via z-index, not a clip-path cutout — see `applySpotlight`)
- * and given a small scale pop, so it reads as the one live, interactive
- * thing on screen.
+ * A four-step "Mega Feature Showcase" tour: a single card stays pinned dead
+ * center of the viewport for the whole run — it never relocates itself the
+ * way a floating tooltip would — while the rest of the board renders as flat
+ * grey "skeleton" placeholders and the step's target section is lifted above
+ * a dark backdrop through a literal cutout in the mask (see `applySpotlight`
+ * and `spotlightBands`). A gradient beam plus a pinging dot connect the
+ * stationary card to wherever the live target actually is, so "look over
+ * there" survives the card no longer sitting next to it.
  */
 export default function OnboardingTour({ open, getSectionEls, onExit }: Props) {
   const [step, setStep] = useState(0);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [measured, setMeasured] = useState<Measured | null>(null);
+  const [cardRect, setCardRect] = useState<DOMRect | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null);
 
   /* eslint-disable react-hooks/set-state-in-effect -- resetting local UI state to match a prop transition (tour re-opening), not a render-time derivation */
   useEffect(() => {
@@ -178,8 +233,7 @@ export default function OnboardingTour({ open, getSectionEls, onExit }: Props) {
   // Measure natural (unstyled) rects first, then lift this step's target
   // above the mask. Order matters: `measure()` must run before the spotlight
   // styles are applied, or the scale transform would inflate its own
-  // getBoundingClientRect and throw off both the card position and the
-  // skeleton layout of everyone else.
+  // getBoundingClientRect and throw off the skeleton layout of everyone else.
   /* eslint-disable react-hooks/set-state-in-effect -- measuring live DOM layout (an external system) is exactly what this effect exists to do */
   useLayoutEffect(() => {
     if (!open) {
@@ -196,61 +250,31 @@ export default function OnboardingTour({ open, getSectionEls, onExit }: Props) {
   }, [open, step, measure]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Keep the spotlight and skeleton blocks aligned across viewport resizes
-  // without re-triggering the (idempotent, but pointless) style toggle above.
+  // The card's own rect, re-measured whenever its content (and so its size)
+  // changes with the step — needed to anchor the connector beam to its edge
+  // rather than a stale position.
+  /* eslint-disable react-hooks/set-state-in-effect -- reading the card's post-layout size is exactly what this effect exists to do */
+  useLayoutEffect(() => {
+    if (!open) {
+      setCardRect(null);
+      return;
+    }
+    setCardRect(cardRef.current?.getBoundingClientRect() ?? null);
+  }, [open, step, measured]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // Keep the spotlight, skeleton blocks, and connector beam aligned across
+  // viewport resizes without re-triggering the (idempotent, but pointless)
+  // style toggle above.
   useEffect(() => {
     if (!open) return;
-    const onResize = () => setMeasured(measure());
+    const onResize = () => {
+      setMeasured(measure());
+      setCardRect(cardRef.current?.getBoundingClientRect() ?? null);
+    };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [open, measure]);
-
-  // Position the floating card relative to whichever side of the target has
-  // the most room, clamped to stay fully on-screen either way.
-  /* eslint-disable react-hooks/set-state-in-effect -- positioning depends on the card's own rendered size, only knowable after the DOM commits */
-  useLayoutEffect(() => {
-    if (!measured || measured.active.length === 0) {
-      setCardPos(null);
-      return;
-    }
-    const target = unionRect(measured.active.map((a) => a.rect));
-    const card = cardRef.current;
-    const cw = card?.offsetWidth ?? 320;
-    const ch = card?.offsetHeight ?? 160;
-    const gap = 18;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    const spaceBottom = vh - target.bottom;
-    const spaceTop = target.top;
-    const spaceRight = vw - target.right;
-    const spaceLeft = target.left;
-
-    let top: number;
-    let left: number;
-
-    if (spaceBottom >= ch + gap) {
-      top = target.bottom + gap;
-      left = clamp(target.left + target.width / 2 - cw / 2, gap, Math.max(gap, vw - cw - gap));
-    } else if (spaceTop >= ch + gap) {
-      top = target.top - gap - ch;
-      left = clamp(target.left + target.width / 2 - cw / 2, gap, Math.max(gap, vw - cw - gap));
-    } else if (spaceRight >= cw + gap) {
-      left = target.right + gap;
-      top = clamp(target.top + target.height / 2 - ch / 2, gap, Math.max(gap, vh - ch - gap));
-    } else if (spaceLeft >= cw + gap) {
-      left = target.left - gap - cw;
-      top = clamp(target.top + target.height / 2 - ch / 2, gap, Math.max(gap, vh - ch - gap));
-    } else {
-      // No side has room (a very small viewport) — pin inside the viewport
-      // rather than clip off the edge.
-      top = clamp(target.bottom + gap, gap, Math.max(gap, vh - ch - gap));
-      left = clamp(target.left + target.width / 2 - cw / 2, gap, Math.max(gap, vw - cw - gap));
-    }
-
-    setCardPos({ top, left });
-  }, [measured]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const finish = useCallback(() => onExit(true), [onExit]);
   const abort = useCallback(() => onExit(dontShowAgain), [onExit, dontShowAgain]);
@@ -295,18 +319,20 @@ export default function OnboardingTour({ open, getSectionEls, onExit }: Props) {
     typeof window === "undefined"
       ? []
       : spotlightBands(hole, window.innerWidth, window.innerHeight);
+  const connector = hole && cardRect ? computeConnector(cardRect, hole) : null;
 
   return (
     <>
       {/* The mask: four bands framing a literal hole around the target,
           rather than one full-screen div — also the click-blocker for every
           un-spotlighted control, so the tour can't be nudged out of sync by
-          a stray click underneath it. */}
+          a stray click underneath it. Transitions on position/size so the
+          hole glides to the next target instead of snapping. */}
       {bands.map((b, i) => (
         <div
           key={i}
           style={{ position: "fixed", top: b.top, left: b.left, width: b.width, height: b.height }}
-          className="z-40 bg-[#020617]/72 backdrop-blur-[1px]"
+          className="z-40 bg-[#020617]/72 backdrop-blur-[1px] transition-[top,left,width,height] duration-300 ease-out"
         />
       ))}
 
@@ -315,24 +341,61 @@ export default function OnboardingTour({ open, getSectionEls, onExit }: Props) {
           key={i}
           aria-hidden
           style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
-          className="z-[41] overflow-hidden rounded-2xl bg-[#161d2c] ring-1 ring-white/[0.05]"
+          className="z-[41] overflow-hidden rounded-2xl bg-[#161d2c] ring-1 ring-white/[0.05] transition-[top,left,width,height] duration-300 ease-out"
         >
           <div className="h-full w-full animate-pulse bg-gradient-to-br from-slate-700/35 via-slate-800/20 to-slate-700/35" />
         </div>
       ))}
 
+      {/* Visual anchor: a gradient beam from the stationary card's edge to
+          the target's edge, plus a pinging dot right on the target — so
+          "where do I look" survives the card staying put in the center. */}
+      {connector && (
+        <svg key={`beam-${step}`} aria-hidden className="animate-step-in pointer-events-none fixed inset-0 z-[45] h-full w-full">
+          <defs>
+            <linearGradient
+              id="tourBeamGradient"
+              gradientUnits="userSpaceOnUse"
+              x1={connector.x1}
+              y1={connector.y1}
+              x2={connector.x2}
+              y2={connector.y2}
+            >
+              <stop offset="0%" stopColor="rgba(148,163,184,0.3)" />
+              <stop offset="100%" stopColor="rgba(56,211,248,0.95)" />
+            </linearGradient>
+          </defs>
+          <line
+            x1={connector.x1}
+            y1={connector.y1}
+            x2={connector.x2}
+            y2={connector.y2}
+            stroke="url(#tourBeamGradient)"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+      {connector && (
+        <div
+          key={`dot-${step}`}
+          style={{ position: "fixed", top: connector.y2, left: connector.x2 }}
+          className="animate-step-in pointer-events-none z-[45] -translate-x-1/2 -translate-y-1/2"
+        >
+          <span className="absolute inline-flex h-3 w-3 animate-ping rounded-full bg-sky-400 opacity-60" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-400 shadow-[0_0_12px_2px_rgba(56,189,248,0.7)]" />
+        </div>
+      )}
+
+      {/* The showcase card: fixed dead-center for the entire tour. It never
+          relocates itself between steps — only its content crossfades and
+          the beam/spotlight above move to point at it instead. */}
       <div
         ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tour-step-title"
-        style={{
-          position: "fixed",
-          top: cardPos?.top ?? -9999,
-          left: cardPos?.left ?? -9999,
-          visibility: cardPos ? "visible" : "hidden",
-        }}
-        className="z-[46] flex w-[320px] flex-col gap-3 rounded-2xl border border-white/10 bg-[#131a2b]/95 p-4 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl transition-[top,left] duration-200 ease-out"
+        className="fixed top-1/2 left-1/2 z-[46] flex max-h-[80vh] w-[400px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-y-auto rounded-2xl border border-white/10 bg-[#131a2b]/95 p-5 shadow-[0_28px_70px_-12px_rgba(0,0,0,0.75)] backdrop-blur-xl"
       >
         <div className="flex items-start justify-between gap-2">
           <span className="text-[11px] font-semibold tracking-[0.14em] text-sky-400 uppercase">
@@ -348,29 +411,31 @@ export default function OnboardingTour({ open, getSectionEls, onExit }: Props) {
           </button>
         </div>
 
-        <div>
-          <h3 id="tour-step-title" className="text-[14.5px] font-semibold text-[#F8FAFC]">
-            {current.title}
-          </h3>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-[#CBD5E1]">{current.body}</p>
+        <div key={step} className="animate-step-in flex flex-col gap-3">
+          <div>
+            <h3 id="tour-step-title" className="text-[15px] font-semibold text-[#F8FAFC]">
+              {current.title}
+            </h3>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-[#CBD5E1]">{current.body}</p>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-[#7C8AA5] select-none">
+            <input
+              type="checkbox"
+              checked={dontShowAgain}
+              onChange={(e) => setDontShowAgain(e.target.checked)}
+              className="h-3 w-3 accent-sky-500"
+            />
+            Don&apos;t show this again
+          </label>
         </div>
 
-        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-[#7C8AA5] select-none">
-          <input
-            type="checkbox"
-            checked={dontShowAgain}
-            onChange={(e) => setDontShowAgain(e.target.checked)}
-            className="h-3 w-3 accent-sky-500"
-          />
-          Don&apos;t show this again
-        </label>
-
-        <div className="flex items-center justify-between gap-2">
+        <div className="mt-1 flex items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
           <div className="flex gap-1">
             {STEPS.map((_, i) => (
               <span
                 key={i}
-                className={`h-1.5 w-1.5 rounded-full ${i === step ? "bg-sky-400" : "bg-slate-700"}`}
+                className={`h-1.5 w-1.5 rounded-full transition-colors duration-200 ${i === step ? "bg-sky-400" : "bg-slate-700"}`}
               />
             ))}
           </div>

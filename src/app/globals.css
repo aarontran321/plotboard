@@ -60,6 +60,23 @@ body {
   animation: accordion-in 0.16s ease-out;
 }
 
+/* Onboarding tour step crossfade — the showcase card's content and its
+   connector beam/dot re-appear together on each step instead of snapping. */
+@keyframes step-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-step-in {
+  animation: step-fade-in 220ms ease-out;
+}
+
 /*
  * Premium slider: an inset dark groove with a glowing accent thumb. Applied to
  * every `input[type=range]` in the app (simulation speed, playback timeline).
