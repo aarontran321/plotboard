@@ -19,15 +19,10 @@ interface Props {
   duration: number;
   /** Key moments (release, deflection, etc.), rendered as clickable ticks on the track. */
   events?: PlayEvent[];
-  /** Whether "Throw Now" would do anything right now — a pass target is set
-   *  and the ball hasn't already left the QB's hand in the loaded run. */
-  canThrow: boolean;
   onTogglePlay: () => void;
   /** Rewinds the play to its first frame, whether playing, frozen, or finished. */
   onRestart: () => void;
   onScrub: (t: number) => void;
-  /** Forces the QB to release immediately, starting playback first if needed. */
-  onThrowNow: () => void;
 }
 
 function RestartIcon() {
@@ -35,16 +30,6 @@ function RestartIcon() {
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
       <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.7 0 3.2.75 4.24 1.93" strokeLinecap="round" />
       <path d="M12 1.5v3.2h-3.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** A thrown-pass glyph for the Throw Now button: a release arrow off a ball. */
-function ThrowIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-      <path d="M2.5 13.5 12.5 3.5" strokeLinecap="round" />
-      <path d="M6 3.5h6.5V10" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -69,11 +54,9 @@ export default function PlaybackDeck({
   t,
   duration,
   events = [],
-  canThrow,
   onTogglePlay,
   onRestart,
   onScrub,
-  onThrowNow,
 }: Props) {
   const hasRun = duration > 0;
   // Scrubbing while the sim is actively advancing would fight the animation
@@ -108,17 +91,6 @@ export default function PlaybackDeck({
       >
         <RestartIcon />
         Restart
-      </Button>
-
-      <Button
-        disabled={disabled || !canThrow}
-        onClick={onThrowNow}
-        aria-label="Throw now (T)"
-        title="Throw now (T) — release the ball immediately"
-        className="flex items-center gap-1.5 !px-3"
-      >
-        <ThrowIcon />
-        Throw Now
       </Button>
 
       <div className="relative flex-1">

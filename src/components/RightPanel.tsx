@@ -101,7 +101,7 @@ export default function RightPanel({
                   ? drawMode
                     ? "Draw Route Mode is on — drag from this player to draw their route."
                     : isQB
-                      ? "Use the Pass Target Tool below, or click anywhere along a receiver's route to set the pass target directly. Once a target is set, press T or the Throw Now button under the field to release on your own timing — any time before or during the play."
+                      ? "Use the Pass Target Tool below, or click anywhere along a receiver's route to set the pass target directly."
                       : "Drag to move this player. Press D to draw their route instead."
                   : "Drag to adjust this defender's alignment."}
               </p>

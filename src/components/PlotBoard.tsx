@@ -476,13 +476,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         if (locked) return;
         e.preventDefault();
         setDrawMode((v) => !v);
-      } else if (key === "t") {
-        // Throw Now works precisely while playing (that's the point), so it
-        // is not gated behind `locked` the way most editing shortcuts are —
-        // only an export in progress blocks it.
-        if (isExporting) return;
-        e.preventDefault();
-        fieldCanvasRef.current?.throwNow();
       } else if (key === "arrowleft" || key === "arrowright") {
         // Stepping fights the live animation loop over the same state, same
         // as the deck's own step buttons — so this is a no-op mid-playback

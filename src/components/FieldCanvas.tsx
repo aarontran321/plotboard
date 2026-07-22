@@ -26,7 +26,6 @@ import {
   computePlayEvents,
   createContext,
   createInitialSim,
-  forceThrow,
   pickTrailDefender,
   simulateTo,
   stepSim,
@@ -81,12 +80,6 @@ interface Props {
 export interface FieldCanvasHandle {
   scrub: (t: number) => void;
   step: (deltaSeconds: number) => void;
-  /**
-   * The "Throw Now" control: forces the QB to release immediately, starting
-   * playback first if the play hasn't been snapped yet. No-ops with no pass
-   * target set, or once the ball has already left the QB's hand this run.
-   */
-  throwNow: () => void;
   /** The raw canvas element, so a caller (the onboarding tour) can measure
    *  and spotlight it without this component knowing that tour exists. */
   getCanvasEl: () => HTMLCanvasElement | null;
@@ -220,10 +213,6 @@ function FieldCanvas(
   // `playbackT` tracks whatever simulation is actually loaded (live or seeked).
   const [playbackT, setPlaybackT] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
-  // Whether the ball has left the QB's hand in whatever sim is currently
-  // loaded — the "Throw Now" button and shortcut are only meaningful before
-  // that happens, so this is what disables them once it does.
-  const [ballThrown, setBallThrown] = useState(false);
   const simRef = useRef<{ ctx: SimContext; sim: SimState } | null>(null);
   /** Mirrors `playbackDuration` for synchronous reads from callbacks. */
   const playbackDurationRef = useRef(0);
@@ -235,7 +224,6 @@ function FieldCanvas(
   /** Updates the local readout and notifies the parent dashboard, in one place. */
   const reportPlayback = useCallback((t: number, sim: SimState | null) => {
     setPlaybackT(t);
-    setBallThrown(Boolean(sim?.ball));
     onPlaybackUpdateRef.current?.({ t, duration: playbackDurationRef.current, sim });
   }, []);
 
@@ -270,7 +258,6 @@ function FieldCanvas(
     isPlacingPassTarget,
     theme,
     onFinished,
-    onTogglePlay,
   });
   const viewRef = useRef(view);
 
@@ -284,7 +271,6 @@ function FieldCanvas(
       isPlacingPassTarget,
       theme,
       onFinished,
-      onTogglePlay,
     };
     viewRef.current = view;
   });
@@ -688,29 +674,6 @@ function FieldCanvas(
     [onScrub]
   );
 
-  /**
-   * The "Throw Now" control (a key press or the playback deck button): forces
-   * an immediate release regardless of the automatic route-progress/timer
-   * heuristic. A finished run is torn down and restarted first, so the throw
-   * always lands on a live play rather than replaying a dead one; an idle,
-   * never-started board is kicked into playback the same way pressing
-   * Simulate Play would, so "any time" really does include before the snap.
-   */
-  const throwNow = useCallback(() => {
-    if (latest.current.isPlacingPassTarget || latest.current.drawMode) return;
-    if (!latest.current.play.passTarget) return;
-
-    let entry = ensureSim();
-    if (entry.sim.finished) {
-      invalidateSim();
-      entry = ensureSim();
-    }
-
-    if (forceThrow(entry.ctx, entry.sim)) reportPlayback(entry.sim.t, entry.sim);
-    if (!latest.current.isPlaying) latest.current.onTogglePlay();
-    draw();
-  }, [ensureSim, invalidateSim, reportPlayback, draw]);
-
   // The play dashboard below the field drives this same playhead (e.g.
   // clicking a timeline event marker), so it gets the same scrub/step
   // functions the internal PlaybackDeck uses — not a second implementation.
@@ -719,11 +682,10 @@ function FieldCanvas(
     () => ({
       scrub: onScrub,
       step: onStep,
-      throwNow,
       getCanvasEl: () => canvasRef.current,
       getDeckEl: () => deckWrapRef.current,
     }),
-    [onScrub, onStep, throwNow]
+    [onScrub, onStep]
   );
 
   // --- Interaction --------------------------------------------------------
@@ -1397,11 +1359,9 @@ function FieldCanvas(
           t={playbackT}
           duration={playbackDuration}
           events={events}
-          canThrow={Boolean(play.passTarget) && !ballThrown && !drawMode && !isPlacingPassTarget}
           onTogglePlay={onTogglePlay}
           onRestart={onRestart}
           onScrub={onScrub}
-          onThrowNow={throwNow}
         />
       </div>
     </div>
