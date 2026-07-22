@@ -26,6 +26,7 @@ const GROUPS: Group[] = [
     title: "Playback",
     shortcuts: [
       { keys: "Space", description: "Play / pause the simulation" },
+      { keys: "T", description: "Throw Now — QB releases immediately, whenever a target is set" },
       { keys: "R", description: "Reset to pre-snap alignment" },
       { keys: "← / →", description: "Step one frame back / forward" },
       { keys: "Click a timeline tick", description: "Jump to that moment (release, deflection, etc.)" },
