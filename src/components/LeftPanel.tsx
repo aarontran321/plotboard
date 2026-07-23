@@ -18,6 +18,8 @@ interface Props {
   isPlacingPassTarget: boolean;
   theme: FieldTheme;
   disabled: boolean;
+  /** True while playback or export blocks arming the Pass Target Tool. */
+  passTargetDisabled: boolean;
   onFormation: (f: FormationId) => void;
   onDefenseFormation: (d: DefenseFormationId) => void;
   onCoverage: (c: CoverageId) => void;
@@ -50,6 +52,7 @@ export default function LeftPanel({
   isPlacingPassTarget,
   theme,
   disabled,
+  passTargetDisabled,
   onFormation,
   onDefenseFormation,
   onCoverage,
@@ -118,7 +121,7 @@ export default function LeftPanel({
         </p>
         <Button
           active={isPlacingPassTarget}
-          disabled={disabled}
+          disabled={passTargetDisabled}
           onClick={onTogglePlacingPassTarget}
           aria-pressed={isPlacingPassTarget}
           aria-label="Set pass target (P)"

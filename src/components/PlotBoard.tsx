@@ -635,6 +635,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 isPlacingPassTarget={isPlacingPassTarget}
                 theme={theme}
                 disabled={isExporting}
+                passTargetDisabled={locked}
                 onFormation={onFormation}
                 onDefenseFormation={onDefenseFormation}
                 onCoverage={onCoverage}
