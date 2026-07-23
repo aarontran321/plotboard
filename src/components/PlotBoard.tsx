@@ -410,6 +410,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     const finished = playback.duration > 0 && playback.t >= playback.duration - 0.001;
     if (finished) setResetId((v) => v + 1);
     setSelectedId(null);
+    setIsPlacingPassTarget(false);
     setIsPlaying(true);
   };
 
