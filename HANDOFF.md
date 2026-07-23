@@ -295,16 +295,19 @@ Things that will bite you if you don't know them:
   onto it. The QB node is drawn with a gold double ring and star badge, and
   when selected it shows marching guide lines to each active route plus a
   ghost target under the cursor.
-- **The Pass Target Tool** (`isPlacingPassTarget`, a "Set Pass Target" button
-  under Active Element when the QB is selected) is the dedicated version of
-  the same idea: it arms a crosshair cursor and dims the field, then a click
-  either snaps to whichever route/receiver is within range (highlighted with
-  a brighter stroke and a slight scale-up as you hover — weight and size, not
-  a glow, so the flat-design rule holds) or drops a free target in open space
-  with `receiverId: null` — a throw anticipating a vacancy rather than a
-  route. Either way, one placement turns the tool back off. A bright
-  sky-blue dashed "passing lane" is drawn from the QB to whatever target is
-  set, live, so its geometry can be inspected before running the play.
+- **The Pass Target Tool** (`isPlacingPassTarget`) is a dedicated mode of its
+  own — not gated behind Move Players or Draw Routes. A "Set Pass Target"
+  button lives under Tool in the left panel, and the **P** hotkey does the
+  same job: both select the QB automatically, leave draw mode, and arm a
+  crosshair cursor that dims the field. A click then either snaps to
+  whichever route/receiver is within range (highlighted with a brighter
+  stroke and a slight scale-up as you hover — weight and size, not a glow,
+  so the flat-design rule holds) or drops a free target in open space with
+  `receiverId: null` — a throw anticipating a vacancy rather than a route.
+  Either way, one placement turns the tool back off. Esc or P cancels. A
+  bright sky-blue dashed "passing lane" is drawn from the QB to whatever
+  target is set, live, so its geometry can be inspected before running the
+  play.
 - **Throw physics**: release at 30% route progress (or, for a free target or a
   receiver with no drawn route — a hitch — a fixed timer once the drop has had
   time to settle, since there is no route progress to key off). Flight time

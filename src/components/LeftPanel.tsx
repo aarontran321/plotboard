@@ -7,7 +7,7 @@ import {
   FORMATION_LABELS,
 } from "@/lib/formations";
 import type { CoverageId, DefenseFormationId, FormationId } from "@/lib/types";
-import { Badge, Panel, Section, Segmented, Select } from "./ui";
+import { Badge, Button, Panel, Section, Segmented, Select } from "./ui";
 
 interface Props {
   formation: FormationId;
@@ -15,6 +15,7 @@ interface Props {
   coverage: CoverageId;
   speed: number;
   drawMode: boolean;
+  isPlacingPassTarget: boolean;
   theme: FieldTheme;
   disabled: boolean;
   onFormation: (f: FormationId) => void;
@@ -22,6 +23,7 @@ interface Props {
   onCoverage: (c: CoverageId) => void;
   onSpeed: (s: number) => void;
   onDrawMode: (on: boolean) => void;
+  onTogglePlacingPassTarget: () => void;
   onTheme: (t: FieldTheme) => void;
 }
 
@@ -29,12 +31,23 @@ const FORMATIONS = Object.keys(FORMATION_LABELS) as FormationId[];
 const DEFENSE_FORMATIONS = Object.keys(DEFENSE_FORMATION_LABELS) as DefenseFormationId[];
 const COVERAGES = Object.keys(COVERAGE_LABELS) as CoverageId[];
 
+/** A small flat crosshair icon for the Pass Target Tool button. */
+function CrosshairIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <circle cx="8" cy="8" r="5" />
+      <path d="M8 0.5v3.2M8 12.3v3.2M0.5 8h3.2M12.3 8h3.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function LeftPanel({
   formation,
   defenseFormation,
   coverage,
   speed,
   drawMode,
+  isPlacingPassTarget,
   theme,
   disabled,
   onFormation,
@@ -42,6 +55,7 @@ export default function LeftPanel({
   onCoverage,
   onSpeed,
   onDrawMode,
+  onTogglePlacingPassTarget,
   onTheme,
 }: Props) {
   return (
@@ -101,6 +115,21 @@ export default function LeftPanel({
           {drawMode
             ? "Drag from a selected offensive player to draw their route. Press D to go back to moving players."
             : "Drag players to reposition them. Press D to draw routes instead."}
+        </p>
+        <Button
+          active={isPlacingPassTarget}
+          disabled={disabled}
+          onClick={onTogglePlacingPassTarget}
+          aria-pressed={isPlacingPassTarget}
+          aria-label="Set pass target (P)"
+          title="Set pass target (P) — selects the QB and arms the targeting tool"
+          className="flex w-full items-center justify-center gap-2"
+        >
+          <CrosshairIcon />
+          {isPlacingPassTarget ? "Placing Target… (Esc to cancel)" : "Set Pass Target (P)"}
+        </Button>
+        <p className="text-[11px] leading-snug text-[#7C8AA5]">
+          Arms the Pass Target Tool on its own — selects the QB automatically. Press P anytime.
         </p>
       </Section>
 

@@ -426,6 +426,21 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     setIsPlacingPassTarget(false);
   };
 
+  /**
+   * Arms (or disarms) the Pass Target Tool as its own mode — independent of
+   * Move Players / Draw Routes. Arming always selects the QB and leaves draw
+   * mode so a click on the field can place the target immediately.
+   */
+  const onTogglePlacingPassTarget = () => {
+    if (isPlacingPassTarget) {
+      setIsPlacingPassTarget(false);
+      return;
+    }
+    setSelectedId("QB");
+    setDrawMode(false);
+    setIsPlacingPassTarget(true);
+  };
+
   /*
    * Keyboard shortcuts. Space/R/Esc mirror the bindings this project already
    * established; Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z drive history.
@@ -475,7 +490,14 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
       } else if (key === "d") {
         if (locked) return;
         e.preventDefault();
+        // Entering draw mode cancels the Pass Target Tool so the two modes
+        // never fight over the next click — same as the Tool segmented control.
+        if (!drawMode) setIsPlacingPassTarget(false);
         setDrawMode((v) => !v);
+      } else if (key === "p") {
+        if (locked) return;
+        e.preventDefault();
+        onTogglePlacingPassTarget();
       } else if (key === "t") {
         // Throw Now works precisely while playing (that's the point), so it
         // is not gated behind `locked` the way most editing shortcuts are —
@@ -610,6 +632,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 coverage={play.coverage}
                 speed={speed}
                 drawMode={drawMode}
+                isPlacingPassTarget={isPlacingPassTarget}
                 theme={theme}
                 disabled={isExporting}
                 onFormation={onFormation}
@@ -620,6 +643,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                   setDrawMode(on);
                   if (on) setIsPlacingPassTarget(false);
                 }}
+                onTogglePlacingPassTarget={onTogglePlacingPassTarget}
                 onTheme={setTheme}
               />
             </div>
@@ -697,10 +721,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
 
           <p className="text-[12px] leading-relaxed text-[#7C8AA5]">
             {isPlacingPassTarget
-              ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc cancels."
+              ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc or P cancels."
               : drawMode
-                ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
-                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click, or drag a box over open field, to select several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
+                ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players, or P to set a pass target."
+                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click, or drag a box over open field, to select several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes, or P to set a pass target."}
           </p>
         </main>
 
@@ -719,8 +743,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 hasRoute={hasRoute}
                 hasAnyRoutes={hasAnyRoutes}
                 drawMode={drawMode}
-                isPlacingPassTarget={isPlacingPassTarget}
-                onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
                 canUndo={canUndo}
                 canRedo={canRedo}
                 disabled={locked}
