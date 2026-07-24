@@ -14,7 +14,7 @@ import {
  *
  * Glass modules sit on off-black with hairline borders. Buttons read as
  * physical controls (inset highlight + drop shadow + press scale). Active
- * toggles use a matte amber accent — never a full cyan fill.
+ * toggles use a matte blue accent — never a full cyan fill.
  */
 
 const BENTO =
@@ -119,15 +119,15 @@ export function Button({
     "transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out " +
     "enabled:active:scale-95 " +
     "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 " +
-    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600/70 " +
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600/70 " +
     "shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_8px_-2px_rgba(0,0,0,0.55)]";
 
   const palette = active
-    ? "border-amber-700/60 bg-amber-950/50 text-[#EDEDED] " +
-      "shadow-[inset_0_1px_0_rgba(255,255,255,0.12),inset_0_0_12px_rgba(180,83,9,0.25),0_2px_8px_-2px_rgba(0,0,0,0.55)]"
+    ? "border-blue-700/60 bg-blue-950/50 text-[#EDEDED] " +
+      "shadow-[inset_0_1px_0_rgba(255,255,255,0.12),inset_0_0_12px_rgba(37,99,235,0.3),0_2px_8px_-2px_rgba(0,0,0,0.55)]"
     : variant === "primary"
-      ? "border-amber-700/50 bg-amber-900/40 text-[#EDEDED] " +
-        "enabled:hover:bg-amber-800/45 enabled:hover:border-amber-600/60"
+      ? "border-blue-700/50 bg-blue-900/40 text-[#EDEDED] " +
+        "enabled:hover:bg-blue-800/45 enabled:hover:border-blue-600/60"
       : variant === "danger"
         ? "border-rose-900/40 bg-transparent text-rose-300/80 " +
           "enabled:hover:border-rose-700/50 enabled:hover:bg-rose-950/30 enabled:hover:text-rose-200"
@@ -176,8 +176,8 @@ export function Segmented<T extends string>({
               "transition-[transform,background-color,color,border-color,box-shadow] duration-150 " +
               "enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 " +
               (isActive
-                ? "border border-amber-700/55 bg-amber-950/55 text-[#EDEDED] " +
-                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_0_10px_rgba(180,83,9,0.2)]"
+                ? "border border-blue-700/55 bg-blue-950/55 text-[#EDEDED] " +
+                  "shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_0_10px_rgba(37,99,235,0.25)]"
                 : "border border-transparent text-[#A1A1AA] enabled:hover:bg-white/[0.04] enabled:hover:text-[#EDEDED]")
             }
           >
@@ -201,7 +201,7 @@ export function Select({ className = "", children, ...props }: SelectHTMLAttribu
       className={
         "w-full cursor-pointer appearance-none border-0 border-b-[1.5px] border-white/15 bg-transparent " +
         "px-0.5 py-2 pr-6 text-[13px] font-medium text-[#EDEDED] transition-colors duration-150 " +
-        "hover:enabled:border-white/30 focus:border-b-2 focus:border-amber-600 focus:outline-none " +
+        "hover:enabled:border-white/30 focus:border-b-2 focus:border-blue-600 focus:outline-none " +
         "disabled:cursor-not-allowed disabled:opacity-40 " +
         className
       }
@@ -225,7 +225,7 @@ export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLIn
         className={
           "w-full min-w-0 border-0 border-b-[1.5px] border-white/15 bg-transparent px-0.5 py-2 " +
           "text-[13px] text-[#EDEDED] transition-colors duration-150 placeholder:text-[#52525B] " +
-          "hover:enabled:border-white/30 focus:border-b-2 focus:border-amber-600 focus:outline-none " +
+          "hover:enabled:border-white/30 focus:border-b-2 focus:border-blue-600 focus:outline-none " +
           "disabled:cursor-not-allowed disabled:opacity-40 " +
           className
         }
@@ -267,7 +267,7 @@ export function CollapseButton({
 
 export function Badge({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-0.5 font-mono text-[12px] text-amber-500/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+    <span className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-0.5 font-mono text-[12px] text-blue-400/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
       {children}
     </span>
   );

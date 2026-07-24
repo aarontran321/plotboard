@@ -80,7 +80,7 @@ export default function RightPanel({
               </p>
               <p
                 className={`mt-1 text-[12px] ${
-                  isQB && !drawMode ? "italic text-amber-500/90" : "text-[#A1A1AA]"
+                  isQB && !drawMode ? "italic text-blue-400/90" : "text-[#A1A1AA]"
                 }`}
               >
                 {selected.team === "offense"

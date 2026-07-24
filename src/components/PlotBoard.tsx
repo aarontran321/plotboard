@@ -705,7 +705,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
 
             {isExporting && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-3xl bg-[#0A0A0A]/85 backdrop-blur-sm">
-                <span className="h-7 w-7 animate-spin rounded-full border-2 border-white/15 border-t-amber-600" />
+                <span className="h-7 w-7 animate-spin rounded-full border-2 border-white/15 border-t-blue-600" />
                 <p className="font-mono text-[12px] text-[#A1A1AA]">
                   {exportState.status === "busy" ? exportState.message : "Rendering…"}
                 </p>

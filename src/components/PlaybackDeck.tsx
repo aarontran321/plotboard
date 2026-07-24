@@ -118,7 +118,7 @@ export default function PlaybackDeck({
           className="pointer-events-none absolute inset-x-0 top-[11px] h-2.5 overflow-hidden rounded-full"
           aria-hidden
         >
-          <div className="h-full rounded-full bg-amber-700/35" style={{ width: `${progress}%` }} />
+          <div className="h-full rounded-full bg-blue-700/35" style={{ width: `${progress}%` }} />
         </div>
 
         <input
@@ -157,7 +157,7 @@ export default function PlaybackDeck({
       </div>
 
       <span className="shrink-0 font-mono text-[12px] tracking-tight text-[#A1A1AA] tabular-nums">
-        <span className="text-amber-500/90">{formatTime(t)}</span>
+        <span className="text-blue-400/90">{formatTime(t)}</span>
         <span className="mx-1 text-[#52525B]">/</span>
         <span>{hasRun ? formatTime(duration) : "--:--.-"}</span>
       </span>

@@ -45,14 +45,14 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
                 "flex min-w-0 flex-1 cursor-pointer flex-col items-start rounded-xl border px-2.5 py-1.5 text-left " +
                 "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-[transform,background-color,border-color] duration-150 " +
                 "enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 " +
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700/70 " +
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700/70 " +
                 (active
-                  ? "border-amber-700/55 bg-amber-950/45 text-[#EDEDED]"
+                  ? "border-blue-700/55 bg-blue-950/45 text-[#EDEDED]"
                   : "border-white/10 bg-white/[0.03] text-[#EDEDED] enabled:hover:bg-white/[0.06]")
               }
             >
               <span className="w-full truncate text-[12px] font-medium">{p.name}</span>
-              <span className={`font-mono text-[10px] ${active ? "text-amber-500/80" : "text-[#A1A1AA]"}`}>
+              <span className={`font-mono text-[10px] ${active ? "text-blue-400/80" : "text-[#A1A1AA]"}`}>
                 {savedAgo(p.savedAt)}
               </span>
             </button>
@@ -67,7 +67,7 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
                 "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-150 " +
                 "enabled:active:scale-95 enabled:hover:bg-rose-950/40 enabled:hover:text-rose-200 " +
                 "disabled:cursor-not-allowed disabled:opacity-40 " +
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700/70"
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700/70"
               }
             >
               <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true" fill="none">

@@ -6,27 +6,27 @@
   --color-pb-bg: #0a0a0a;
   --color-pb-fg: #ededed;
   --color-pb-muted: #a1a1aa;
-  --color-pb-accent: #b45309;
-  --color-pb-accent-soft: #d97706;
+  --color-pb-accent: #1d4ed8;
+  --color-pb-accent-soft: #2563eb;
 }
 
 /*
  * PlotBoard editorial workspace — rich off-black, glass bento modules,
- * amber matte accents. Fixed palette (not OS light/dark).
+ * matte blue accents. Fixed palette (not OS light/dark).
  */
 :root {
   --bg-base: #0a0a0a;
   --fg: #ededed;
   --muted: #a1a1aa;
-  --accent: #b45309;
-  --accent-soft: #d97706;
+  --accent: #1d4ed8;
+  --accent-soft: #2563eb;
   --glass: rgba(255, 255, 255, 0.02);
   --hairline: rgba(255, 255, 255, 0.1);
 }
 
 body {
   background:
-    radial-gradient(ellipse 900px 600px at 8% 0%, rgba(180, 83, 9, 0.08), transparent 55%),
+    radial-gradient(ellipse 900px 600px at 8% 0%, rgba(37, 99, 235, 0.1), transparent 55%),
     radial-gradient(ellipse 700px 500px at 95% 15%, rgba(255, 255, 255, 0.03), transparent 50%),
     linear-gradient(180deg, #101010 0%, var(--bg-base) 40%, #050505 100%);
   background-attachment: fixed;
@@ -82,7 +82,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #f59e0b, var(--accent));
+  background: linear-gradient(180deg, #60a5fa, var(--accent));
   border: 1px solid rgba(255, 255, 255, 0.25);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.25),
@@ -100,7 +100,7 @@ input[type="range"]::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #f59e0b, var(--accent));
+  background: linear-gradient(180deg, #60a5fa, var(--accent));
   border: 1px solid rgba(255, 255, 255, 0.25);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.25),
