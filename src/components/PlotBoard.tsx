@@ -608,14 +608,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
         </div>
       </header>
 
-      {/* Asymmetric 12-col bento: rails 2 | canvas 8 | rails 2 */}
-      <div className="grid grid-cols-1 items-start gap-3 p-3 md:grid-cols-12 md:gap-4 md:p-4">
+      {/* Fixed-width rails flank a field that flexes to fill the space between
+          them; on narrow screens everything stacks with the field on top. */}
+      <div className="flex flex-col gap-4 p-3 md:p-4 lg:flex-row lg:items-start">
         <aside
           ref={leftPanelElRef}
           className={
-            leftCollapsed
-              ? "md:col-span-1"
-              : "md:col-span-2"
+            "order-2 w-full lg:order-none " + (leftCollapsed ? "lg:w-[52px]" : "lg:w-64 lg:shrink-0")
           }
         >
           {leftCollapsed ? (
@@ -631,7 +630,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 formation={play.formation}
                 defenseFormation={play.defenseFormation}
                 coverage={play.coverage}
-                speed={speed}
                 drawMode={drawMode}
                 isPlacingPassTarget={isPlacingPassTarget}
                 theme={theme}
@@ -640,7 +638,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 onFormation={onFormation}
                 onDefenseFormation={onDefenseFormation}
                 onCoverage={onCoverage}
-                onSpeed={setSpeed}
                 onDrawMode={(on) => {
                   setDrawMode(on);
                   if (on) setIsPlacingPassTarget(false);
@@ -652,16 +649,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           )}
         </aside>
 
-        <main
-          className={
-            "flex flex-col gap-3 " +
-            (leftCollapsed && rightCollapsed
-              ? "md:col-span-10"
-              : leftCollapsed || rightCollapsed
-                ? "md:col-span-9"
-                : "md:col-span-8")
-          }
-        >
+        <main className="order-1 flex min-w-0 flex-1 flex-col gap-3 lg:order-none">
           <PlayNameBar
             name={play.name}
             disabled={isExporting}
@@ -672,6 +660,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             exportState={exportState}
             onShare={onShare}
             onExport={onExport}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
           />
 
           {missingShare && (
@@ -681,7 +673,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             </div>
           )}
 
-          <div className="relative rounded-3xl border border-white/10 bg-white/[0.02] p-2 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.85)] backdrop-blur-xl">
+          <div className="relative rounded-3xl border border-white/10 bg-white/[0.02] p-2 shadow-[0_10px_36px_-22px_rgba(0,0,0,0.8)] backdrop-blur-xl">
             <FieldCanvas
               ref={fieldCanvasRef}
               play={play}
@@ -689,6 +681,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               isPlaying={isPlaying}
               drawMode={drawMode}
               speed={speed}
+              onSpeed={setSpeed}
               resetId={resetId}
               transitionId={transitionId}
               isPlacingPassTarget={isPlacingPassTarget}
@@ -715,7 +708,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
 
           <div
             ref={chatCardElRef}
-            className="rounded-3xl border border-white/10 bg-white/[0.02] p-3 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)] backdrop-blur-xl"
+            className="rounded-3xl border border-white/10 bg-white/[0.02] p-3 shadow-[0_8px_30px_-20px_rgba(0,0,0,0.7)] backdrop-blur-xl"
           >
             <PlayChat
               play={play}
@@ -727,18 +720,21 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             />
           </div>
 
-          <p className="text-[12px] leading-relaxed text-[#A1A1AA]">
+          <p className="px-1 text-[12px] leading-relaxed text-[#71717A]">
             {isPlacingPassTarget
-              ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc or P cancels."
+              ? "Pass Target armed — click a route, receiver, or open field to place it. Esc cancels."
               : drawMode
-                ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players, or P to set a pass target."
-                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click, or drag a box over open field, to select several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes, or P to set a pass target."}
+                ? "Draw Routes — drag from a receiver to sketch their path. Press D to move players."
+                : "Drag to reposition · shift-click or box-select for groups · right-click for quick actions · D draws routes · P sets a target."}
           </p>
         </main>
 
         <aside
           ref={rightPanelElRef}
-          className={rightCollapsed ? "md:col-span-1" : "md:col-span-2"}
+          className={
+            "order-3 w-full lg:order-none " +
+            (rightCollapsed ? "lg:w-[52px]" : "lg:w-64 lg:shrink-0")
+          }
         >
           {rightCollapsed ? (
             <div className="flex justify-center rounded-3xl border border-white/10 bg-white/[0.02] p-2 backdrop-blur-xl">
@@ -754,14 +750,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 hasRoute={hasRoute}
                 hasAnyRoutes={hasAnyRoutes}
                 drawMode={drawMode}
-                canUndo={canUndo}
-                canRedo={canRedo}
                 disabled={locked}
                 onPreset={onPreset}
                 onClearRoute={onClearRoute}
                 onResetAllRoutes={onResetAllRoutes}
-                onUndo={undo}
-                onRedo={redo}
                 saveState={saveState}
                 savedPlays={savedPlays}
                 activeSavedId={activeSavedId}

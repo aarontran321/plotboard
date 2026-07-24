@@ -7,13 +7,12 @@ import {
   FORMATION_LABELS,
 } from "@/lib/formations";
 import type { CoverageId, DefenseFormationId, FormationId } from "@/lib/types";
-import { Badge, Bento, Button, Segmented, Select } from "./ui";
+import { Bento, Button, Divider, Fieldset, Segmented, Select } from "./ui";
 
 interface Props {
   formation: FormationId;
   defenseFormation: DefenseFormationId;
   coverage: CoverageId;
-  speed: number;
   drawMode: boolean;
   isPlacingPassTarget: boolean;
   theme: FieldTheme;
@@ -23,7 +22,6 @@ interface Props {
   onFormation: (f: FormationId) => void;
   onDefenseFormation: (d: DefenseFormationId) => void;
   onCoverage: (c: CoverageId) => void;
-  onSpeed: (s: number) => void;
   onDrawMode: (on: boolean) => void;
   onTogglePlacingPassTarget: () => void;
   onTheme: (t: FieldTheme) => void;
@@ -32,6 +30,13 @@ interface Props {
 const FORMATIONS = Object.keys(FORMATION_LABELS) as FormationId[];
 const DEFENSE_FORMATIONS = Object.keys(DEFENSE_FORMATION_LABELS) as DefenseFormationId[];
 const COVERAGES = Object.keys(COVERAGE_LABELS) as CoverageId[];
+
+/** Compact segment captions — the full names live in the dropdowns/tooltips. */
+const COVERAGE_SHORT: Record<CoverageId, string> = {
+  man: "Man",
+  "cover-2": "Cover 2",
+  "cover-3": "Cover 3",
+};
 
 function CrosshairIcon() {
   return (
@@ -46,7 +51,6 @@ export default function LeftPanel({
   formation,
   defenseFormation,
   coverage,
-  speed,
   drawMode,
   isPlacingPassTarget,
   theme,
@@ -55,69 +59,71 @@ export default function LeftPanel({
   onFormation,
   onDefenseFormation,
   onCoverage,
-  onSpeed,
   onDrawMode,
   onTogglePlacingPassTarget,
   onTheme,
 }: Props) {
   return (
-    <div className="flex flex-col gap-3">
-      <Bento title="Offense Formation">
-        <Select
-          value={formation}
-          disabled={disabled}
-          aria-label="Offense formation"
-          onChange={(e) => onFormation(e.target.value as FormationId)}
-        >
-          {FORMATIONS.map((f) => (
-            <option key={f} value={f}>
-              {FORMATION_LABELS[f]}
-            </option>
-          ))}
-        </Select>
+    <div className="flex flex-col gap-4">
+      <Bento title="Matchup">
+        <Fieldset label="Offense">
+          <Select
+            value={formation}
+            disabled={disabled}
+            aria-label="Offense formation"
+            onChange={(e) => onFormation(e.target.value as FormationId)}
+          >
+            {FORMATIONS.map((f) => (
+              <option key={f} value={f}>
+                {FORMATION_LABELS[f]}
+              </option>
+            ))}
+          </Select>
+        </Fieldset>
+
+        <Fieldset label="Defense">
+          <Select
+            value={defenseFormation}
+            disabled={disabled}
+            aria-label="Defense formation"
+            onChange={(e) => onDefenseFormation(e.target.value as DefenseFormationId)}
+          >
+            {DEFENSE_FORMATIONS.map((d) => (
+              <option key={d} value={d}>
+                {DEFENSE_FORMATION_LABELS[d]}
+              </option>
+            ))}
+          </Select>
+        </Fieldset>
+
+        <Fieldset label="Coverage">
+          <Segmented
+            value={coverage}
+            disabled={disabled}
+            ariaLabel="Defensive coverage"
+            onChange={onCoverage}
+            options={COVERAGES.map((c) => ({
+              value: c,
+              label: <span title={COVERAGE_LABELS[c]}>{COVERAGE_SHORT[c]}</span>,
+            }))}
+          />
+        </Fieldset>
       </Bento>
 
-      <Bento title="Defense Formation">
-        <Select
-          value={defenseFormation}
-          disabled={disabled}
-          aria-label="Defense formation"
-          onChange={(e) => onDefenseFormation(e.target.value as DefenseFormationId)}
-        >
-          {DEFENSE_FORMATIONS.map((d) => (
-            <option key={d} value={d}>
-              {DEFENSE_FORMATION_LABELS[d]}
-            </option>
-          ))}
-        </Select>
-      </Bento>
+      <Bento title="Tools">
+        <Fieldset label="Interaction">
+          <Segmented
+            value={drawMode ? "draw" : "move"}
+            disabled={disabled}
+            ariaLabel="Interaction tool"
+            onChange={(v) => onDrawMode(v === "draw")}
+            options={[
+              { value: "move", label: "Move" },
+              { value: "draw", label: "Draw Routes" },
+            ]}
+          />
+        </Fieldset>
 
-      <Bento title="Defensive Coverage">
-        <Segmented
-          value={coverage}
-          disabled={disabled}
-          ariaLabel="Defensive coverage"
-          onChange={onCoverage}
-          options={COVERAGES.map((c) => ({ value: c, label: COVERAGE_LABELS[c] }))}
-        />
-      </Bento>
-
-      <Bento title="Tool Selection">
-        <Segmented
-          value={drawMode ? "draw" : "move"}
-          disabled={disabled}
-          ariaLabel="Interaction tool"
-          onChange={(v) => onDrawMode(v === "draw")}
-          options={[
-            { value: "move", label: "Move" },
-            { value: "draw", label: "Draw Routes" },
-          ]}
-        />
-        <p className="text-[11px] leading-snug text-[#A1A1AA]">
-          {drawMode
-            ? "Drag from an offensive player to draw their route. D toggles back to move."
-            : "Drag players to reposition. D arms route drawing."}
-        </p>
         <Button
           active={isPlacingPassTarget}
           disabled={passTargetDisabled}
@@ -128,41 +134,29 @@ export default function LeftPanel({
           className="flex w-full items-center justify-center gap-2"
         >
           <CrosshairIcon />
-          {isPlacingPassTarget ? "Placing Target… (Esc)" : "Set Pass Target (P)"}
+          {isPlacingPassTarget ? "Placing Target… (Esc)" : "Set Pass Target"}
         </Button>
-        <p className="text-[11px] leading-snug text-[#A1A1AA]">
-          Arms the Pass Target Tool — selects the QB automatically. Press P anytime.
+
+        <p className="text-[11px] leading-snug text-[#71717A]">
+          {drawMode
+            ? "Drag from a player to draw their route. Press D to move."
+            : "Drag players to reposition. D draws routes, P sets a target."}
         </p>
-      </Bento>
 
-      <Bento title="Field Style">
-        <Segmented
-          value={theme}
-          disabled={disabled}
-          ariaLabel="Field style"
-          onChange={onTheme}
-          options={[
-            { value: "turf", label: "Turf" },
-            { value: "chalkboard", label: "Chalk" },
-          ]}
-        />
-      </Bento>
+        <Divider className="my-0.5" />
 
-      <Bento title="Sim Speed">
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={0.5}
-            max={1.5}
-            step={0.5}
-            value={speed}
+        <Fieldset label="Field Style">
+          <Segmented
+            value={theme}
             disabled={disabled}
-            onChange={(e) => onSpeed(Number(e.target.value))}
-            aria-label="Simulation speed"
-            className="h-2.5 flex-1 disabled:cursor-not-allowed disabled:opacity-40"
+            ariaLabel="Field style"
+            onChange={onTheme}
+            options={[
+              { value: "turf", label: "Turf" },
+              { value: "chalkboard", label: "Chalk" },
+            ]}
           />
-          <Badge>{speed.toFixed(1)}x</Badge>
-        </div>
+        </Fieldset>
       </Bento>
     </div>
   );

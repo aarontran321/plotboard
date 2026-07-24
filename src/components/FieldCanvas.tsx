@@ -44,6 +44,8 @@ interface Props {
   drawMode: boolean;
   /** Playback rate multiplier. */
   speed: number;
+  /** Sets the playback rate — the speed control lives in the deck below the field. */
+  onSpeed: (s: number) => void;
   /** Increments to clear the simulation and return players to their alignment. */
   resetId: number;
   /**
@@ -162,6 +164,7 @@ function FieldCanvas(
     isPlaying,
     drawMode,
     speed,
+    onSpeed,
     resetId,
     transitionId,
     isPlacingPassTarget,
@@ -1398,6 +1401,8 @@ function FieldCanvas(
           duration={playbackDuration}
           events={events}
           canThrow={Boolean(play.passTarget) && !ballThrown && !drawMode && !isPlacingPassTarget}
+          speed={speed}
+          onSpeed={onSpeed}
           onTogglePlay={onTogglePlay}
           onRestart={onRestart}
           onScrub={onScrub}

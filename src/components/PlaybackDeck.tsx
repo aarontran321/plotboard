@@ -18,11 +18,16 @@ interface Props {
   events?: PlayEvent[];
   /** Whether "Throw Now" would do anything — pass target set, ball not yet thrown. */
   canThrow: boolean;
+  /** Playback rate multiplier and its setter — playback speed lives with the deck. */
+  speed: number;
+  onSpeed: (s: number) => void;
   onTogglePlay: () => void;
   onRestart: () => void;
   onScrub: (t: number) => void;
   onThrowNow: () => void;
 }
+
+const SPEEDS = [0.5, 1, 1.5];
 
 function RestartIcon() {
   return (
@@ -62,6 +67,8 @@ export default function PlaybackDeck({
   duration,
   events = [],
   canThrow,
+  speed,
+  onSpeed,
   onTogglePlay,
   onRestart,
   onScrub,
@@ -161,6 +168,35 @@ export default function PlaybackDeck({
         <span className="mx-1 text-[#52525B]">/</span>
         <span>{hasRun ? formatTime(duration) : "--:--.-"}</span>
       </span>
+
+      <div
+        role="radiogroup"
+        aria-label="Simulation speed"
+        className="flex shrink-0 items-center gap-0.5 rounded-xl border border-white/10 bg-black/40 p-0.5"
+      >
+        {SPEEDS.map((s) => {
+          const active = Math.abs(s - speed) < 0.001;
+          return (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              disabled={disabled}
+              onClick={() => onSpeed(s)}
+              className={
+                "cursor-pointer rounded-lg px-2 py-1 font-mono text-[11px] tabular-nums " +
+                "transition-[background-color,color] duration-150 disabled:cursor-not-allowed disabled:opacity-40 " +
+                (active
+                  ? "bg-blue-950/55 text-[#EDEDED] shadow-[inset_0_0_8px_rgba(37,99,235,0.25)]"
+                  : "text-[#A1A1AA] enabled:hover:text-[#EDEDED]")
+              }
+            >
+              {s}×
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

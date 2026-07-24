@@ -4,7 +4,7 @@ import { ROUTE_PRESET_LABELS } from "@/lib/routePresets";
 import type { SavedPlaySummary } from "@/lib/savedPlays";
 import type { PlayerDef, RoutePresetId } from "@/lib/types";
 import SavedPlaysList from "./SavedPlaysList";
-import { Bento, Button } from "./ui";
+import { Bento, Button, Divider, Fieldset } from "./ui";
 
 export type ActionState =
   | { status: "idle" }
@@ -17,14 +17,10 @@ interface Props {
   hasRoute: boolean;
   hasAnyRoutes: boolean;
   drawMode: boolean;
-  canUndo: boolean;
-  canRedo: boolean;
   disabled: boolean;
   onPreset: (preset: RoutePresetId) => void;
   onClearRoute: () => void;
   onResetAllRoutes: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
   saveState: ActionState;
   savedPlays: SavedPlaySummary[];
   activeSavedId: string | null;
@@ -50,14 +46,10 @@ export default function RightPanel({
   hasRoute,
   hasAnyRoutes,
   drawMode,
-  canUndo,
-  canRedo,
   disabled,
   onPreset,
   onClearRoute,
   onResetAllRoutes,
-  onUndo,
-  onRedo,
   saveState,
   savedPlays,
   activeSavedId,
@@ -67,61 +59,60 @@ export default function RightPanel({
   const isQB = selected?.id === "QB";
   const canRoute = Boolean(selected && selected.team === "offense") && !disabled;
 
+  const title = !selected
+    ? "No selection"
+    : isQB
+      ? "Quarterback"
+      : `${selected.team === "offense" ? "Offense" : "Defense"} — ${selected.label}`;
+
+  const hint = !selected
+    ? "Click a player to select them, or press P to set a pass target."
+    : selected.team === "offense"
+      ? drawMode
+        ? "Draw Route Mode — drag from this player to set their path."
+        : isQB
+          ? "Press P (or a receiver's route) to aim, then T to release on your timing."
+          : "Drag to move. D draws their route."
+      : "Drag to adjust this defender's alignment.";
+
   return (
-    <div className="flex flex-col gap-3">
-      <Bento title="Active Element">
+    <div className="flex flex-col gap-4">
+      <Bento title="Selection">
         <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-          {selected ? (
-            <>
-              <p className="text-[14px] font-semibold text-[#EDEDED]">
-                {isQB
-                  ? "Quarterback Selected"
-                  : `${selected.team === "offense" ? "Offense" : "Defense"} — ${selected.label}`}
-              </p>
-              <p
-                className={`mt-1 text-[12px] ${
-                  isQB && !drawMode ? "italic text-blue-400/90" : "text-[#A1A1AA]"
-                }`}
-              >
-                {selected.team === "offense"
-                  ? drawMode
-                    ? "Draw Route Mode — drag from this player to set their path."
-                    : isQB
-                      ? "Press P or use Set Pass Target in the left rail, or click a receiver route on the field. Once set, press T or Throw Now under the field to release on your timing."
-                      : "Drag to move. D to draw their route."
-                  : "Drag to adjust this defender's alignment."}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-[14px] font-semibold text-[#A1A1AA]">No selection</p>
-              <p className="mt-1 text-[12px] text-[#A1A1AA]">
-                Click a player to select them, or press P to set a pass target.
-              </p>
-            </>
-          )}
+          <p className={`text-[14px] font-semibold ${selected ? "text-[#EDEDED]" : "text-[#A1A1AA]"}`}>
+            {title}
+          </p>
+          <p
+            className={`mt-1 text-[12px] leading-snug ${
+              isQB && !drawMode ? "text-blue-400/90" : "text-[#A1A1AA]"
+            }`}
+          >
+            {hint}
+          </p>
         </div>
-      </Bento>
 
-      <Bento title="Route Presets">
-        <div className="grid grid-cols-2 gap-1.5">
-          {PRESETS.map((p) => (
-            <Button key={p} disabled={!canRoute || isQB} onClick={() => onPreset(p)}>
-              {ROUTE_PRESET_LABELS[p]}
+        <Divider className="my-0.5" />
+
+        <Fieldset label="Route Presets">
+          <div className="grid grid-cols-2 gap-1.5">
+            {PRESETS.map((p) => (
+              <Button key={p} disabled={!canRoute || isQB} onClick={() => onPreset(p)}>
+                {ROUTE_PRESET_LABELS[p]}
+              </Button>
+            ))}
+          </div>
+          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+            <Button disabled={!canRoute || !hasRoute} onClick={onClearRoute} variant="danger">
+              Clear Route
             </Button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          <Button disabled={!canRoute || !hasRoute} onClick={onClearRoute} variant="danger">
-            Clear Route
-          </Button>
-          <Button disabled={disabled || !hasAnyRoutes} onClick={onResetAllRoutes} variant="danger">
-            Reset All
-          </Button>
-        </div>
+            <Button disabled={disabled || !hasAnyRoutes} onClick={onResetAllRoutes} variant="danger">
+              Reset All
+            </Button>
+          </div>
+        </Fieldset>
       </Bento>
 
-      <Bento title="My Saved Plays">
+      <Bento title="Saved Plays">
         <SavedPlaysList
           plays={savedPlays}
           activeId={activeSavedId}
@@ -130,18 +121,6 @@ export default function RightPanel({
           onDelete={onDeleteSaved}
         />
         <Status state={saveState} />
-      </Bento>
-
-      <Bento title="History">
-        <div className="grid grid-cols-2 gap-1.5">
-          <Button disabled={!canUndo || disabled} onClick={onUndo} aria-label="Undo (Ctrl+Z)">
-            Undo
-          </Button>
-          <Button disabled={!canRedo || disabled} onClick={onRedo} aria-label="Redo (Ctrl+Y)">
-            Redo
-          </Button>
-        </div>
-        <p className="font-mono text-[10px] text-[#A1A1AA]">⌃Z undo · ⌃Y redo</p>
       </Bento>
     </div>
   );

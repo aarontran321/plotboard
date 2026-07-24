@@ -19,10 +19,39 @@ import {
 
 const BENTO =
   "rounded-3xl border border-white/10 bg-white/[0.02] p-4 " +
-  "shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)] backdrop-blur-xl";
+  "shadow-[0_8px_30px_-20px_rgba(0,0,0,0.7)] backdrop-blur-xl";
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`flex flex-col gap-4 ${BENTO} ${className}`}>{children}</div>;
+}
+
+/** Hairline separator between grouped sections inside a single panel. */
+export function Divider({ className = "" }: { className?: string }) {
+  return <div className={`h-px w-full bg-white/[0.07] ${className}`} />;
+}
+
+/**
+ * A labelled control group used inside a consolidated panel — a small caption
+ * above a single control, so several controls can share one bento tile instead
+ * of each getting its own floating card.
+ */
+export function Fieldset({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-1.5 ${className}`}>
+      <span className="text-[10px] font-semibold tracking-[0.14em] text-[#71717A] uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
 }
 
 /** One asymmetric bento tile — use instead of stacking everything in a single Panel. */
