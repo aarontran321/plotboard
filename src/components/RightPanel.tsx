@@ -17,11 +17,6 @@ interface Props {
   hasRoute: boolean;
   hasAnyRoutes: boolean;
   drawMode: boolean;
-  isPlacingPassTarget: boolean;
-  onTogglePlacingPassTarget: () => void;
-  receivers: PlayerDef[];
-  passTargetReceiverId: string | null;
-  onPlanPassTarget: (receiverId: string) => void;
   canUndo: boolean;
   canRedo: boolean;
   disabled: boolean;
@@ -50,25 +45,11 @@ function Status({ state }: { state: ActionState }) {
   return <p className={`font-mono text-[11px] leading-snug ${color}`}>{state.message}</p>;
 }
 
-function CrosshairIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-      <circle cx="8" cy="8" r="5" />
-      <path d="M8 0.5v3.2M8 12.3v3.2M0.5 8h3.2M12.3 8h3.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export default function RightPanel({
   selected,
   hasRoute,
   hasAnyRoutes,
   drawMode,
-  isPlacingPassTarget,
-  onTogglePlacingPassTarget,
-  receivers,
-  passTargetReceiverId,
-  onPlanPassTarget,
   canUndo,
   canRedo,
   disabled,
@@ -106,47 +87,19 @@ export default function RightPanel({
                   ? drawMode
                     ? "Draw Route Mode — drag from this player to set their path."
                     : isQB
-                      ? "Pick a receiver below, arm the Pass Target Tool, or click a route on the field."
+                      ? "Press P or use Set Pass Target in the left rail, or click a receiver route on the field. Once set, press T or Throw Now under the field to release on your timing."
                       : "Drag to move. D to draw their route."
                   : "Drag to adjust this defender's alignment."}
               </p>
-              {isQB && !drawMode && (
-                <Button
-                  active={isPlacingPassTarget}
-                  disabled={disabled}
-                  onClick={onTogglePlacingPassTarget}
-                  aria-pressed={isPlacingPassTarget}
-                  className="mt-2.5 flex w-full items-center justify-center gap-2"
-                >
-                  <CrosshairIcon />
-                  {isPlacingPassTarget ? "Placing Target… (Esc)" : "Set Pass Target"}
-                </Button>
-              )}
             </>
           ) : (
             <>
               <p className="text-[14px] font-semibold text-[#A1A1AA]">No selection</p>
-              <p className="mt-1 text-[12px] text-[#A1A1AA]">Click a player to select them.</p>
+              <p className="mt-1 text-[12px] text-[#A1A1AA]">
+                Click a player to select them, or press P to set a pass target.
+              </p>
             </>
           )}
-        </div>
-      </Bento>
-
-      <Bento title="Pass Target">
-        <p className="text-[12px] text-[#A1A1AA]">
-          Click a receiver to plan the throw. Click again to clear.
-        </p>
-        <div className="grid grid-cols-2 gap-1.5">
-          {receivers.map((r) => (
-            <Button
-              key={r.id}
-              active={passTargetReceiverId === r.id}
-              disabled={disabled}
-              onClick={() => onPlanPassTarget(r.id)}
-            >
-              {r.label}
-            </Button>
-          ))}
         </div>
       </Bento>
 

@@ -16,9 +16,12 @@ interface Props {
   t: number;
   duration: number;
   events?: PlayEvent[];
+  /** Whether "Throw Now" would do anything — pass target set, ball not yet thrown. */
+  canThrow: boolean;
   onTogglePlay: () => void;
   onRestart: () => void;
   onScrub: (t: number) => void;
+  onThrowNow: () => void;
 }
 
 function RestartIcon() {
@@ -26,6 +29,15 @@ function RestartIcon() {
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
       <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.7 0 3.2.75 4.24 1.93" strokeLinecap="round" />
       <path d="M12 1.5v3.2h-3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ThrowIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <path d="M2.5 13.5 12.5 3.5" strokeLinecap="round" />
+      <path d="M6 3.5h6.5V10" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -40,8 +52,8 @@ function formatTime(s: number) {
 }
 
 /**
- * Playback controls under the field: tactile play/pause, restart, and a thick
- * segmented timeline with event ticks.
+ * Playback controls under the field: tactile play/pause, restart, throw now,
+ * and a thick segmented timeline with event ticks.
  */
 export default function PlaybackDeck({
   isPlaying,
@@ -49,9 +61,11 @@ export default function PlaybackDeck({
   t,
   duration,
   events = [],
+  canThrow,
   onTogglePlay,
   onRestart,
   onScrub,
+  onThrowNow,
 }: Props) {
   const hasRun = duration > 0;
   const scrubDisabled = disabled || isPlaying || !hasRun;
@@ -61,7 +75,7 @@ export default function PlaybackDeck({
   const progress = hasRun ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0;
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_8px_28px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+    <div className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_8px_28px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       <Button
         disabled={disabled}
         onClick={onTogglePlay}
@@ -82,26 +96,29 @@ export default function PlaybackDeck({
         Restart
       </Button>
 
-      <div className="relative flex-1 pt-1 pb-0.5">
-        {/* Segmented tick marks behind the thick range track */}
+      <Button
+        disabled={disabled || !canThrow}
+        onClick={onThrowNow}
+        aria-label="Throw now (T)"
+        title="Throw now (T) — release the ball immediately"
+        className="flex items-center gap-1.5 !px-3"
+      >
+        <ThrowIcon />
+        Throw Now
+      </Button>
+
+      <div className="relative min-w-[160px] flex-1 pt-1 pb-0.5">
         <div className="pointer-events-none absolute inset-x-0 top-[11px] flex h-2.5 items-stretch justify-between px-0.5">
           {Array.from({ length: 9 }, (_, i) => (
-            <span
-              key={i}
-              className={`w-px ${i % 2 === 0 ? "bg-white/20" : "bg-white/8"}`}
-            />
+            <span key={i} className={`w-px ${i % 2 === 0 ? "bg-white/20" : "bg-white/8"}`} />
           ))}
         </div>
 
-        {/* Progress fill hint under the native range */}
         <div
           className="pointer-events-none absolute inset-x-0 top-[11px] h-2.5 overflow-hidden rounded-full"
           aria-hidden
         >
-          <div
-            className="h-full rounded-full bg-amber-700/35"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="h-full rounded-full bg-amber-700/35" style={{ width: `${progress}%` }} />
         </div>
 
         <input

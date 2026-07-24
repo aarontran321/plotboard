@@ -26,13 +26,16 @@ Open http://localhost:3000.
 - **Drag** a player to move them. Their route moves with them.
 - With a **receiver** selected, drag on open field to draw a route. Or use a
   preset (Slant / Go / Out / Curl), which mirrors correctly per side of the field.
-- Select the **QB**, then click anywhere along a receiver's route to place the
-  orange pass target.
+- Press **P** (or **Set Pass Target** in the left panel) to arm the targeting
+  tool — it selects the QB for you — then click a route or open field to place
+  the orange pass target. With the QB already selected you can also click a
+  route directly.
 - **Simulate Play** runs it. The QB releases once the target receiver is ~30%
   through the route; the ball flies a real parabolic arc and whoever is closest
   to the landing spot makes the play.
-**Shortcuts:** **Space** play/pause · **R** reset · **Esc** deselect · **Ctrl+Z**
-undo · **Ctrl+Y** / **Ctrl+Shift+Z** redo.
+**Shortcuts:** **Space** play/pause · **R** reset · **P** set pass target · **D**
+draw routes · **Esc** deselect · **Ctrl+Z** undo · **Ctrl+Y** / **Ctrl+Shift+Z**
+redo.
 
 > Picking this up cold? Read [`HANDOFF.md`](HANDOFF.md) first — architecture,
 > what's verified, what isn't, and the traps.

@@ -7,7 +7,7 @@ import {
   FORMATION_LABELS,
 } from "@/lib/formations";
 import type { CoverageId, DefenseFormationId, FormationId } from "@/lib/types";
-import { Badge, Bento, Segmented, Select } from "./ui";
+import { Badge, Bento, Button, Segmented, Select } from "./ui";
 
 interface Props {
   formation: FormationId;
@@ -15,13 +15,17 @@ interface Props {
   coverage: CoverageId;
   speed: number;
   drawMode: boolean;
+  isPlacingPassTarget: boolean;
   theme: FieldTheme;
   disabled: boolean;
+  /** True while playback or export blocks arming the Pass Target Tool. */
+  passTargetDisabled: boolean;
   onFormation: (f: FormationId) => void;
   onDefenseFormation: (d: DefenseFormationId) => void;
   onCoverage: (c: CoverageId) => void;
   onSpeed: (s: number) => void;
   onDrawMode: (on: boolean) => void;
+  onTogglePlacingPassTarget: () => void;
   onTheme: (t: FieldTheme) => void;
 }
 
@@ -29,19 +33,31 @@ const FORMATIONS = Object.keys(FORMATION_LABELS) as FormationId[];
 const DEFENSE_FORMATIONS = Object.keys(DEFENSE_FORMATION_LABELS) as DefenseFormationId[];
 const COVERAGES = Object.keys(COVERAGE_LABELS) as CoverageId[];
 
+function CrosshairIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+      <circle cx="8" cy="8" r="5" />
+      <path d="M8 0.5v3.2M8 12.3v3.2M0.5 8h3.2M12.3 8h3.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function LeftPanel({
   formation,
   defenseFormation,
   coverage,
   speed,
   drawMode,
+  isPlacingPassTarget,
   theme,
   disabled,
+  passTargetDisabled,
   onFormation,
   onDefenseFormation,
   onCoverage,
   onSpeed,
   onDrawMode,
+  onTogglePlacingPassTarget,
   onTheme,
 }: Props) {
   return (
@@ -101,6 +117,21 @@ export default function LeftPanel({
           {drawMode
             ? "Drag from an offensive player to draw their route. D toggles back to move."
             : "Drag players to reposition. D arms route drawing."}
+        </p>
+        <Button
+          active={isPlacingPassTarget}
+          disabled={passTargetDisabled}
+          onClick={onTogglePlacingPassTarget}
+          aria-pressed={isPlacingPassTarget}
+          aria-label="Set pass target (P)"
+          title="Set pass target (P) — selects the QB and arms the targeting tool"
+          className="flex w-full items-center justify-center gap-2"
+        >
+          <CrosshairIcon />
+          {isPlacingPassTarget ? "Placing Target… (Esc)" : "Set Pass Target (P)"}
+        </Button>
+        <p className="text-[11px] leading-snug text-[#A1A1AA]">
+          Arms the Pass Target Tool — selects the QB automatically. Press P anytime.
         </p>
       </Bento>
 

@@ -1,4 +1,4 @@
-import type { PassTarget, PlayState, Point } from "./types";
+import type { Point } from "./types";
 
 /** A single quadratic Bezier segment. */
 export interface QuadSegment {
@@ -146,24 +146,6 @@ export function nearestOnPath(path: FlatPath, q: Point): NearestResult {
     }
   }
   return best;
-}
-
-/**
- * The pass target planting the ball on a given receiver right now: 30% down
- * their route if one is drawn (the same depth `THROW_TRIGGER_T` and the
- * context menu's "Set as Primary Option" both use), or their current
- * alignment if it isn't — a hitch thrown right to where they're standing.
- * Shared by every "aim the QB at this player" entry point (the context
- * menu, the sidebar's Pass Target list) so they can't drift apart.
- */
-export function primaryTargetFor(play: PlayState, receiverId: string): PassTarget {
-  const route = play.routes[receiverId];
-  if (route && route.length >= 2) {
-    const pt = pointAtT(flattenPath(route), 0.3);
-    return { x: pt.x, y: pt.y, receiverId, t: 0.3 };
-  }
-  const p = play.players.find((pp) => pp.id === receiverId)!;
-  return { x: p.startX, y: p.startY, receiverId, t: 0 };
 }
 
 /**

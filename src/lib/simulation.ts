@@ -69,6 +69,15 @@ export interface SimContext {
   safetyHelp: Point;
   /** Where the pass rush attacks. */
   rush: Point;
+  /**
+   * Set by the "Throw Now" control (a key press or the playback deck button)
+   * to force an immediate release instead of waiting on the route-progress/
+   * timer heuristic in `stepBall`. Lives on the context rather than the
+   * per-frame `SimState` so that a later scrub or replay of this same context
+   * reproduces the forced release deterministically instead of falling back
+   * to automatic timing.
+   */
+  manualReleaseT: number | null;
 }
 
 export function createContext(play: PlayState): SimContext {
@@ -85,6 +94,7 @@ export function createContext(play: PlayState): SimContext {
     man: play.coverage === "man" ? manAssignments(play.players) : {},
     safetyHelp: manSafetyHelp(play.losX),
     rush: rushTarget(play.players, play.losX),
+    manualReleaseT: null,
   };
 }
 
@@ -252,6 +262,19 @@ function releaseBall(sim: SimState, ctx: SimContext) {
   };
 }
 
+/**
+ * The "Throw Now" control's whole effect on the sim: arms `manualReleaseT` at
+ * the current clock so the very next `stepBall` call releases the ball,
+ * whatever the route-progress heuristic would otherwise have said. No-ops —
+ * and returns `false` — if there is nothing to throw to yet, or if the ball
+ * has already left the QB's hand this run.
+ */
+export function forceThrow(ctx: SimContext, sim: SimState): boolean {
+  if (!ctx.play.passTarget || sim.ball) return false;
+  ctx.manualReleaseT = sim.t;
+  return true;
+}
+
 function resolveOutcome(sim: SimState, ctx: SimContext): Outcome {
   const landing = sim.ball!.to;
 
@@ -292,11 +315,16 @@ function stepBall(sim: SimState, ctx: SimContext, dt: number) {
     // Hold the ball until the intended receiver has run enough of the route —
     // or, for a free throw with no receiver to key off (or a target snapped
     // onto a receiver who was never given a route — a hitch, thrown right to
-    // where they're standing), until the drop has had time to settle.
+    // where they're standing), until the drop has had time to settle. The
+    // "Throw Now" control overrides all of that: once armed, the ball leaves
+    // the instant the sim clock reaches (or has already passed) that moment.
     const hasRoute = target.receiverId !== null && Boolean(ctx.paths[target.receiverId]);
-    const ready = hasRoute
-      ? routeProgress(sim, ctx, target.receiverId!) >= THROW_TRIGGER_T
-      : sim.t >= FREE_THROW_RELEASE_T;
+    const ready =
+      ctx.manualReleaseT !== null
+        ? sim.t >= ctx.manualReleaseT
+        : hasRoute
+          ? routeProgress(sim, ctx, target.receiverId!) >= THROW_TRIGGER_T
+          : sim.t >= FREE_THROW_RELEASE_T;
     if (ready) releaseBall(sim, ctx);
     return;
   }

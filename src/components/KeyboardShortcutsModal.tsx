@@ -35,6 +35,7 @@ const GROUPS: Group[] = [
     title: "Editing",
     shortcuts: [
       { keys: "D", description: "Toggle Draw Route Mode / Move Players" },
+      { keys: "P", description: "Set Pass Target — selects the QB and arms the targeting tool" },
       { keys: "Ctrl/⌘+Z", description: "Undo" },
       { keys: "Ctrl/⌘+Y or Ctrl/⌘+Shift+Z", description: "Redo" },
       { keys: "Esc", description: "Deselect, or cancel the Pass Target Tool" },
@@ -50,7 +51,7 @@ const GROUPS: Group[] = [
       { keys: "Right-click a player", description: "Quick actions: route presets, clear route, role, primary option" },
       { keys: "Drag the line of scrimmage", description: "Move the whole play forward or back" },
       { keys: "Drag from a selected receiver (Draw mode)", description: "Draw their route" },
-      { keys: "Click a receiver's route (QB selected)", description: "Set the pass target" },
+      { keys: "Click a receiver's route (Pass Target Tool or QB selected)", description: "Set the pass target" },
     ],
   },
 ];

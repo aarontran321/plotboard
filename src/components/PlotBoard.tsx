@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { sharePlay } from "@/app/actions";
 import { LOS_X, type FieldTheme } from "@/lib/field";
 import { buildFormation } from "@/lib/formations";
-import { flattenPath, pointAtT, primaryTargetFor } from "@/lib/geometry";
+import { flattenPath, pointAtT } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
 import { History, restore, snapshot, type Snapshot } from "@/lib/history";
 import { loadPlayLocal, savePlayLocal } from "@/lib/localPlays";
@@ -399,23 +399,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     edit({ ...play, routes, passTarget: null });
   };
 
-  // Every receiver eligible to be thrown to — offense, minus the QB and
-  // centre — for the sidebar's Pass Target list. Lets the QB's target be
-  // planned with a click regardless of what (if anything) is selected on the
-  // board, rather than requiring the QB be selected and a route or the field
-  // itself be clicked.
-  const eligibleReceivers = play.players.filter(
-    (p) => p.team === "offense" && p.id !== "QB" && p.id !== "C"
-  );
-
-  /** Plans the QB's throw to `receiverId`: 30% down their route if one is
-   *  drawn, or a hitch to their current spot if it isn't. Clicking the
-   *  already-armed receiver's button clears the target instead. */
-  const onPlanPassTarget = (receiverId: string) => {
-    const next = play.passTarget?.receiverId === receiverId ? null : primaryTargetFor(play, receiverId);
-    edit({ ...play, passTarget: next });
-  };
-
   // Pausing freezes on the current frame — it does not rewind. The only
   // wrinkle is a *finished* play: pressing play there should start over rather
   // than sit on the final frame doing nothing, so it rewinds first.
@@ -427,6 +410,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     const finished = playback.duration > 0 && playback.t >= playback.duration - 0.001;
     if (finished) setResetId((v) => v + 1);
     setSelectedId(null);
+    setIsPlacingPassTarget(false);
     setIsPlaying(true);
   };
 
@@ -441,6 +425,21 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   const onPlaceTarget = (target: PassTarget) => {
     edit({ ...play, passTarget: target });
     setIsPlacingPassTarget(false);
+  };
+
+  /**
+   * Arms (or disarms) the Pass Target Tool as its own mode — independent of
+   * Move Players / Draw Routes. Arming always selects the QB and leaves draw
+   * mode so a click on the field can place the target immediately.
+   */
+  const onTogglePlacingPassTarget = () => {
+    if (isPlacingPassTarget) {
+      setIsPlacingPassTarget(false);
+      return;
+    }
+    setSelectedId("QB");
+    setDrawMode(false);
+    setIsPlacingPassTarget(true);
   };
 
   /*
@@ -492,7 +491,21 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
       } else if (key === "d") {
         if (locked) return;
         e.preventDefault();
+        // Entering draw mode cancels the Pass Target Tool so the two modes
+        // never fight over the next click — same as the Tool segmented control.
+        if (!drawMode) setIsPlacingPassTarget(false);
         setDrawMode((v) => !v);
+      } else if (key === "p") {
+        if (locked) return;
+        e.preventDefault();
+        onTogglePlacingPassTarget();
+      } else if (key === "t") {
+        // Throw Now works precisely while playing (that's the point), so it
+        // is not gated behind `locked` the way most editing shortcuts are —
+        // only an export in progress blocks it.
+        if (isExporting) return;
+        e.preventDefault();
+        fieldCanvasRef.current?.throwNow();
       } else if (key === "arrowleft" || key === "arrowright") {
         // Stepping fights the live animation loop over the same state, same
         // as the deck's own step buttons — so this is a no-op mid-playback
@@ -620,8 +633,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 coverage={play.coverage}
                 speed={speed}
                 drawMode={drawMode}
+                isPlacingPassTarget={isPlacingPassTarget}
                 theme={theme}
                 disabled={isExporting}
+                passTargetDisabled={locked}
                 onFormation={onFormation}
                 onDefenseFormation={onDefenseFormation}
                 onCoverage={onCoverage}
@@ -630,6 +645,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                   setDrawMode(on);
                   if (on) setIsPlacingPassTarget(false);
                 }}
+                onTogglePlacingPassTarget={onTogglePlacingPassTarget}
                 onTheme={setTheme}
               />
             </div>
@@ -713,10 +729,10 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
 
           <p className="text-[12px] leading-relaxed text-[#A1A1AA]">
             {isPlacingPassTarget
-              ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc cancels."
+              ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc or P cancels."
               : drawMode
-                ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players."
-                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click, or drag a box over open field, to select several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes."}
+                ? "Draw Route Mode is on: drag from an offensive player to draw their route. Press D to go back to moving players, or P to set a pass target."
+                : "Drag players to reposition them — they are held on their own side of the neutral zone. Shift-click, or drag a box over open field, to select several as a group. Right-click a token for quick actions. Drag the blue line of scrimmage to move the whole play. Press D to draw routes, or P to set a pass target."}
           </p>
         </main>
 
@@ -738,11 +754,6 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 hasRoute={hasRoute}
                 hasAnyRoutes={hasAnyRoutes}
                 drawMode={drawMode}
-                isPlacingPassTarget={isPlacingPassTarget}
-                onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
-                receivers={eligibleReceivers}
-                passTargetReceiverId={play.passTarget?.receiverId ?? null}
-                onPlanPassTarget={onPlanPassTarget}
                 canUndo={canUndo}
                 canRedo={canRedo}
                 disabled={locked}
