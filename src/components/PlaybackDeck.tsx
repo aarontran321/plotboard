@@ -13,14 +13,10 @@ export const FRAME_STEP = 1 / 15;
 interface Props {
   isPlaying: boolean;
   disabled: boolean;
-  /** Seconds into the play. */
   t: number;
-  /** Total seconds the play is expected to take; 0 before a run exists. */
   duration: number;
-  /** Key moments (release, deflection, etc.), rendered as clickable ticks on the track. */
   events?: PlayEvent[];
   onTogglePlay: () => void;
-  /** Rewinds the play to its first frame, whether playing, frozen, or finished. */
   onRestart: () => void;
   onScrub: (t: number) => void;
 }
@@ -44,9 +40,8 @@ function formatTime(s: number) {
 }
 
 /**
- * The playback deck: a play/pause toggle, a Restart button, and a timeline
- * scrubber, sitting under the field. Pausing *freezes* on the current frame
- * (it does not reset); Restart is the only control that rewinds to the start.
+ * Playback controls under the field: tactile play/pause, restart, and a thick
+ * segmented timeline with event ticks.
  */
 export default function PlaybackDeck({
   isPlaying,
@@ -59,20 +54,14 @@ export default function PlaybackDeck({
   onScrub,
 }: Props) {
   const hasRun = duration > 0;
-  // Scrubbing while the sim is actively advancing would fight the animation
-  // loop over the same state, so scrubbing requires pausing first — the
-  // deck's toggle button is always available to get there.
   const scrubDisabled = disabled || isPlaying || !hasRun;
-
-  // "Resume" once the play has been paused partway through; "Simulate Play"
-  // from a fresh or fully-rewound state.
   const midPlay = hasRun && t > 0.001 && t < duration - 0.001;
   const toggleLabel = isPlaying ? "Pause" : midPlay ? "Resume" : "Simulate Play";
-  // Restart is meaningless before a run exists or when already at frame 0.
   const restartDisabled = disabled || !hasRun || (!isPlaying && t <= 0.001);
+  const progress = hasRun ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0;
 
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-white/[0.07] bg-[#0F172A]/70 px-3 py-2.5 shadow-[0_8px_24px_-10px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_8px_28px_-12px_rgba(0,0,0,0.7)] backdrop-blur-xl">
       <Button
         disabled={disabled}
         onClick={onTogglePlay}
@@ -93,7 +82,28 @@ export default function PlaybackDeck({
         Restart
       </Button>
 
-      <div className="relative flex-1">
+      <div className="relative flex-1 pt-1 pb-0.5">
+        {/* Segmented tick marks behind the thick range track */}
+        <div className="pointer-events-none absolute inset-x-0 top-[11px] flex h-2.5 items-stretch justify-between px-0.5">
+          {Array.from({ length: 9 }, (_, i) => (
+            <span
+              key={i}
+              className={`w-px ${i % 2 === 0 ? "bg-white/20" : "bg-white/8"}`}
+            />
+          ))}
+        </div>
+
+        {/* Progress fill hint under the native range */}
+        <div
+          className="pointer-events-none absolute inset-x-0 top-[11px] h-2.5 overflow-hidden rounded-full"
+          aria-hidden
+        >
+          <div
+            className="h-full rounded-full bg-amber-700/35"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+
         <input
           type="range"
           min={0}
@@ -103,14 +113,11 @@ export default function PlaybackDeck({
           disabled={scrubDisabled}
           onChange={(e) => onScrub(Number(e.target.value))}
           aria-label="Playback position"
-          className="h-1.5 w-full disabled:cursor-not-allowed disabled:opacity-40"
+          className="relative z-[1] h-2.5 w-full disabled:cursor-not-allowed disabled:opacity-40"
         />
 
-        {/* Event ticks: pinned to the track regardless of the input's own
-            padding, so a click on one seeks straight to that moment instead
-            of requiring the user to find it by scrubbing. */}
         {hasRun && events.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 top-1/2 h-0 -translate-y-1/2">
+          <div className="pointer-events-none absolute inset-x-0 top-[11px] z-[2] h-2.5">
             {events.map((event, i) => (
               <button
                 key={i}
@@ -120,7 +127,7 @@ export default function PlaybackDeck({
                 title={`${formatTime(event.t)} — ${event.label}`}
                 aria-label={`Jump to ${event.label} at ${formatTime(event.t)}`}
                 style={{ left: `${Math.min(100, Math.max(0, (event.t / duration) * 100))}%` }}
-                className="pointer-events-auto absolute top-1/2 h-3 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.6)] disabled:cursor-not-allowed"
+                className="pointer-events-auto absolute top-1/2 h-4 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.6)] disabled:cursor-not-allowed"
               >
                 <span
                   className="block h-full w-full rounded-full"
@@ -132,12 +139,10 @@ export default function PlaybackDeck({
         )}
       </div>
 
-      {/* Clean tabular-figure sans readout (no monospace), so the clock stays
-          aligned as digits change without the typewriter look. */}
-      <span className="shrink-0 font-sans text-[13px] font-semibold tracking-tight text-[#CBD5E1] tabular-nums">
-        <span className="text-[#7DD3FC]">{formatTime(t)}</span>
-        <span className="mx-1 text-[#475569]">/</span>
-        <span>{hasRun ? formatTime(duration) : "--:--"}</span>
+      <span className="shrink-0 font-mono text-[12px] tracking-tight text-[#A1A1AA] tabular-nums">
+        <span className="text-amber-500/90">{formatTime(t)}</span>
+        <span className="mx-1 text-[#52525B]">/</span>
+        <span>{hasRun ? formatTime(duration) : "--:--.-"}</span>
       </span>
     </div>
   );

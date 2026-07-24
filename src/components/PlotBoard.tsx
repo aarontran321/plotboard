@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { sharePlay } from "@/app/actions";
 import { LOS_X, type FieldTheme } from "@/lib/field";
 import { buildFormation } from "@/lib/formations";
-import { flattenPath, pointAtT } from "@/lib/geometry";
+import { flattenPath, pointAtT, primaryTargetFor } from "@/lib/geometry";
 import { downloadBlob, recordPlayGif } from "@/lib/gif";
 import { History, restore, snapshot, type Snapshot } from "@/lib/history";
 import { loadPlayLocal, savePlayLocal } from "@/lib/localPlays";
@@ -399,6 +399,23 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
     edit({ ...play, routes, passTarget: null });
   };
 
+  // Every receiver eligible to be thrown to — offense, minus the QB and
+  // centre — for the sidebar's Pass Target list. Lets the QB's target be
+  // planned with a click regardless of what (if anything) is selected on the
+  // board, rather than requiring the QB be selected and a route or the field
+  // itself be clicked.
+  const eligibleReceivers = play.players.filter(
+    (p) => p.team === "offense" && p.id !== "QB" && p.id !== "C"
+  );
+
+  /** Plans the QB's throw to `receiverId`: 30% down their route if one is
+   *  drawn, or a hitch to their current spot if it isn't. Clicking the
+   *  already-armed receiver's button clears the target instead. */
+  const onPlanPassTarget = (receiverId: string) => {
+    const next = play.passTarget?.receiverId === receiverId ? null : primaryTargetFor(play, receiverId);
+    edit({ ...play, passTarget: next });
+  };
+
   // Pausing freezes on the current frame — it does not rewind. The only
   // wrinkle is a *finished* play: pressing play there should start over rather
   // than sit on the final frame doing nothing, so it rewinds first.
@@ -560,41 +577,41 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
   };
 
   return (
-    <div className="min-h-screen text-[#E5E7EB]">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-white/[0.06] bg-[#0a0e17]/80 px-4 py-3 backdrop-blur-xl">
-        <div className="flex items-baseline gap-2.5">
-          <h1 className="text-[15px] font-bold tracking-tight text-[#F8FAFC]">PlotBoard</h1>
-          <span className="text-[12px] text-[#7C8AA5]">Playbook Designer &amp; Simulator</span>
+    <div className="min-h-screen text-[#EDEDED]">
+      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#0A0A0A]/85 px-4 py-3 backdrop-blur-xl">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-[17px] font-semibold tracking-tight text-[#EDEDED]">PlotBoard</h1>
+          <span className="hidden text-[12px] text-[#A1A1AA] sm:inline">Playbook Designer</span>
         </div>
-        <div className="flex items-center gap-4 text-[11px] text-[#7C8AA5]">
+        <div className="flex items-center gap-4 font-mono text-[11px] text-[#A1A1AA]">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#3B82F6] shadow-[0_0_8px_rgba(59,130,246,0.7)]" />
-            Offense
+            <span className="inline-block h-2 w-2 rounded-full bg-[#3B82F6]/90" />
+            OFF
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#DC2626] shadow-[0_0_8px_rgba(220,38,38,0.7)]" />
-            Defense
+            <span className="inline-block h-2 w-2 rounded-full bg-[#DC2626]/90" />
+            DEF
           </span>
         </div>
       </header>
 
-      <div
-        className="grid items-start gap-4 p-4 lg:grid-cols-[var(--left-w)_minmax(0,1fr)_var(--right-w)]"
-        style={
-          {
-            "--left-w": leftCollapsed ? "40px" : "240px",
-            "--right-w": rightCollapsed ? "40px" : "280px",
-          } as React.CSSProperties
-        }
-      >
-        <div ref={leftPanelElRef}>
+      {/* Asymmetric 12-col bento: rails 2 | canvas 8 | rails 2 */}
+      <div className="grid grid-cols-1 items-start gap-3 p-3 md:grid-cols-12 md:gap-4 md:p-4">
+        <aside
+          ref={leftPanelElRef}
+          className={
+            leftCollapsed
+              ? "md:col-span-1"
+              : "md:col-span-2"
+          }
+        >
           {leftCollapsed ? (
-            <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+            <div className="flex justify-center rounded-3xl border border-white/10 bg-white/[0.02] p-2 backdrop-blur-xl">
               <CollapseButton glyph="»" label="Expand formations panel" onClick={() => setLeftCollapsed(false)} />
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              <div className="flex justify-end">
+              <div className="flex justify-end px-1">
                 <CollapseButton glyph="«" label="Collapse formations panel" onClick={() => setLeftCollapsed(true)} />
               </div>
               <LeftPanel
@@ -617,9 +634,18 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               />
             </div>
           )}
-        </div>
+        </aside>
 
-        <main className="flex flex-col gap-3">
+        <main
+          className={
+            "flex flex-col gap-3 " +
+            (leftCollapsed && rightCollapsed
+              ? "md:col-span-10"
+              : leftCollapsed || rightCollapsed
+                ? "md:col-span-9"
+                : "md:col-span-8")
+          }
+        >
           <PlayNameBar
             name={play.name}
             disabled={isExporting}
@@ -633,16 +659,13 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           />
 
           {missingShare && (
-            <div className="rounded-xl border border-rose-500/20 bg-[#2A161C]/70 px-3 py-2 text-[12px] text-[#FCA5A5] backdrop-blur-xl">
+            <div className="rounded-2xl border border-rose-500/25 bg-rose-950/40 px-3 py-2 font-mono text-[12px] text-rose-200/90 backdrop-blur-xl">
               That shared play isn&apos;t in the database, and isn&apos;t saved in this browser.
               Showing a fresh board instead.
             </div>
           )}
 
-          {/* The field owns the full width of the centre column; the Play Chat
-              feed sits beneath it rather than stealing a sidebar's worth of
-              space from the board. */}
-          <div className="relative rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          <div className="relative rounded-3xl border border-white/10 bg-white/[0.02] p-2 shadow-[0_16px_48px_-16px_rgba(0,0,0,0.85)] backdrop-blur-xl">
             <FieldCanvas
               ref={fieldCanvasRef}
               play={play}
@@ -665,9 +688,9 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             />
 
             {isExporting && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-[#0a0e17]/85 backdrop-blur-sm">
-                <span className="h-7 w-7 animate-spin rounded-full border-2 border-[#374151] border-t-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.5)]" />
-                <p className="text-[12px] text-[#9CA3AF]">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-3xl bg-[#0A0A0A]/85 backdrop-blur-sm">
+                <span className="h-7 w-7 animate-spin rounded-full border-2 border-white/15 border-t-amber-600" />
+                <p className="font-mono text-[12px] text-[#A1A1AA]">
                   {exportState.status === "busy" ? exportState.message : "Rendering…"}
                 </p>
               </div>
@@ -676,7 +699,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
 
           <div
             ref={chatCardElRef}
-            className="rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-3 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+            className="rounded-3xl border border-white/10 bg-white/[0.02] p-3 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)] backdrop-blur-xl"
           >
             <PlayChat
               play={play}
@@ -688,7 +711,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
             />
           </div>
 
-          <p className="text-[12px] leading-relaxed text-[#7C8AA5]">
+          <p className="text-[12px] leading-relaxed text-[#A1A1AA]">
             {isPlacingPassTarget
               ? "Pass Target Tool is armed: click a route or receiver to snap the target, or click open field to drop a free target. Esc cancels."
               : drawMode
@@ -697,14 +720,17 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
           </p>
         </main>
 
-        <div ref={rightPanelElRef}>
+        <aside
+          ref={rightPanelElRef}
+          className={rightCollapsed ? "md:col-span-1" : "md:col-span-2"}
+        >
           {rightCollapsed ? (
-            <div className="flex justify-center rounded-2xl border border-white/[0.07] bg-[#111827]/70 p-2 shadow-[0_12px_36px_-8px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+            <div className="flex justify-center rounded-3xl border border-white/10 bg-white/[0.02] p-2 backdrop-blur-xl">
               <CollapseButton glyph="«" label="Expand active-element panel" onClick={() => setRightCollapsed(false)} />
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              <div className="flex justify-start">
+              <div className="flex justify-start px-1">
                 <CollapseButton glyph="»" label="Collapse active-element panel" onClick={() => setRightCollapsed(true)} />
               </div>
               <RightPanel
@@ -714,6 +740,9 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
                 drawMode={drawMode}
                 isPlacingPassTarget={isPlacingPassTarget}
                 onTogglePlacingPassTarget={() => setIsPlacingPassTarget((v) => !v)}
+                receivers={eligibleReceivers}
+                passTargetReceiverId={play.passTarget?.receiverId ?? null}
+                onPlanPassTarget={onPlanPassTarget}
                 canUndo={canUndo}
                 canRedo={canRedo}
                 disabled={locked}
@@ -730,7 +759,7 @@ export default function PlotBoard({ initialPlay, fallbackId }: PlotBoardProps) {
               />
             </div>
           )}
-        </div>
+        </aside>
       </div>
 
       <NamePlayDialog

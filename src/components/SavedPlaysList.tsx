@@ -4,7 +4,6 @@ import type { SavedPlaySummary } from "@/lib/savedPlays";
 
 interface Props {
   plays: SavedPlaySummary[];
-  /** The saved play currently on the board, if any. */
   activeId: string | null;
   disabled: boolean;
   onLoad: (id: string) => void;
@@ -24,8 +23,8 @@ function savedAgo(savedAt: number): string {
 export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDelete }: Props) {
   if (plays.length === 0) {
     return (
-      <p className="rounded-lg border border-white/[0.06] bg-[#0F172A]/60 px-3 py-2.5 text-[12px] text-[#7C8AA5]">
-        No saved plays yet. Name a play above and hit Save Play.
+      <p className="rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 text-[12px] text-[#A1A1AA]">
+        No saved plays yet. Name a play and hit Save Play.
       </p>
     );
   }
@@ -36,27 +35,24 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
         const active = p.id === activeId;
         return (
           <li key={p.id} className="flex items-stretch gap-1.5">
-            {/* The whole row is the load target, so the name itself is the button. */}
             <button
               type="button"
               disabled={disabled}
               onClick={() => onLoad(p.id)}
               aria-current={active ? "true" : undefined}
-              // Without this the name and the timestamp run together into
-              // "Vertical Crossjust now" when read aloud.
               aria-label={`Load ${p.name}, saved ${savedAgo(p.savedAt)}`}
               className={
-                "flex min-w-0 flex-1 cursor-pointer flex-col items-start rounded-lg border px-2.5 py-1.5 text-left " +
-                "transition-[transform,box-shadow,background-color] duration-150 enabled:hover:-translate-y-px " +
-                "disabled:cursor-not-allowed disabled:opacity-40 " +
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38BDF8] " +
+                "flex min-w-0 flex-1 cursor-pointer flex-col items-start rounded-xl border px-2.5 py-1.5 text-left " +
+                "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-[transform,background-color,border-color] duration-150 " +
+                "enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 " +
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700/70 " +
                 (active
-                  ? "border-sky-400/50 bg-[#1E293B] text-white"
-                  : "border-white/[0.06] bg-[#1A2336]/70 text-[#E5E7EB] enabled:hover:bg-[#232E45]/80")
+                  ? "border-amber-700/55 bg-amber-950/45 text-[#EDEDED]"
+                  : "border-white/10 bg-white/[0.03] text-[#EDEDED] enabled:hover:bg-white/[0.06]")
               }
             >
               <span className="w-full truncate text-[12px] font-medium">{p.name}</span>
-              <span className={`text-[10px] ${active ? "text-[#BFDBFE]" : "text-[#7C8AA5]"}`}>
+              <span className={`font-mono text-[10px] ${active ? "text-amber-500/80" : "text-[#A1A1AA]"}`}>
                 {savedAgo(p.savedAt)}
               </span>
             </button>
@@ -64,15 +60,14 @@ export default function SavedPlaysList({ plays, activeId, disabled, onLoad, onDe
               type="button"
               disabled={disabled}
               onClick={() => onDelete(p.id)}
-              // The name is in the label because a list of "Delete" buttons is
-              // unusable to a screen reader.
               aria-label={`Delete ${p.name}`}
               title={`Delete ${p.name}`}
               className={
-                "shrink-0 cursor-pointer rounded-lg border border-rose-500/20 bg-[#1A2336]/70 px-2 text-[#FCA5A5] " +
-                "transition-colors enabled:hover:bg-[#3A1F27] enabled:hover:text-[#F87171] " +
+                "shrink-0 cursor-pointer rounded-xl border border-rose-900/40 bg-white/[0.03] px-2 text-rose-300/80 " +
+                "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-150 " +
+                "enabled:active:scale-95 enabled:hover:bg-rose-950/40 enabled:hover:text-rose-200 " +
                 "disabled:cursor-not-allowed disabled:opacity-40 " +
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38BDF8]"
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700/70"
               }
             >
               <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true" fill="none">

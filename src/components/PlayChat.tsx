@@ -6,13 +6,10 @@ import type { PlayEventKind, PlayState } from "@/lib/types";
 
 interface Props {
   play: PlayState;
-  /** Seconds into the play; used only to mark which moments have already been reached. */
   playbackT: number;
   disabled: boolean;
-  /** Hides the feed, leaving just the header, to give the field more vertical room. */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
-  /** Jumps the shared playhead straight to a moment's timestamp. */
   onScrub: (t: number) => void;
 }
 
@@ -27,21 +24,16 @@ const KIND_LABEL: Record<PlayEventKind, string> = {
   dead: "Play ends",
 };
 
-/** Left-edge accent per moment, matching the palette used elsewhere for the same outcomes. */
-const KIND_ACCENT: Record<PlayEventKind, string> = {
-  release: "border-l-amber-500",
-  deflected: "border-l-sky-400",
-  interception: "border-l-rose-500",
-  dead: "border-l-[#94A3B8]",
+/** Soft offense/defense-adjacent tones — no neon. */
+const KIND_TONE: Record<PlayEventKind, string> = {
+  release: "text-[#93C5FD]",
+  deflected: "text-[#FCD34D]",
+  interception: "text-[#FCA5A5]",
+  dead: "text-[#A1A1AA]",
 };
 
 /**
- * A chronological chat-style feed of the play's major moments — release,
- * deflection/interception/whistle — built from the same `computePlayEvents`
- * replay the rest of the app uses. Clicking a message jumps the shared
- * playhead straight to it; hovering highlights the card and reveals a small
- * tooltip with the exact time and context, via a pure-CSS `group-hover`
- * (no extra hover state to manage).
+ * Terminal-style event log for the play's major moments.
  */
 export default function PlayChat({
   play,
@@ -65,14 +57,16 @@ export default function PlayChat({
         aria-expanded={!collapsed}
         className="flex w-full cursor-pointer items-center justify-between gap-2 text-left select-none disabled:cursor-default"
       >
-        <span className="text-[11px] tracking-wide text-[#7C8AA5] uppercase">Play Chat</span>
+        <span className="font-mono text-[11px] tracking-wide text-[#A1A1AA] uppercase">
+          Event Log
+        </span>
         <span className="flex items-center gap-2">
           {events.length > 0 && (
-            <span className="font-mono text-[10px] text-[#7C8AA5]">{events.length} moments</span>
+            <span className="font-mono text-[10px] text-[#A1A1AA]">{events.length} events</span>
           )}
           {onToggleCollapsed && (
             <span
-              className={`text-[10px] text-[#7C8AA5] transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`}
+              className={`text-[10px] text-[#A1A1AA] transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`}
               aria-hidden
             >
               ▾
@@ -82,49 +76,36 @@ export default function PlayChat({
       </button>
 
       {collapsed ? null : events.length === 0 ? (
-        <p className="rounded-lg border border-white/[0.06] bg-[#0a0e17]/60 px-3 py-2.5 text-[12px] text-[#7C8AA5]">
-          Draw a route and place a pass target to generate this play&apos;s event feed.
+        <p className="rounded-2xl border border-white/10 bg-black/40 px-3 py-2.5 font-mono text-[12px] leading-snug text-[#A1A1AA]">
+          $ waiting — draw a route and set a pass target to emit events
         </p>
       ) : (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <ul className="max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-black/50 px-3 py-2 font-mono text-[12px] leading-tight shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           {events.map((event, i) => {
             const reached = playbackT >= event.t;
             return (
-              <button
-                key={i}
-                type="button"
-                disabled={disabled}
-                onClick={() => onScrub(event.t)}
-                className={
-                  "group relative flex w-44 shrink-0 flex-col gap-0.5 rounded-lg border border-white/[0.06] border-l-4 " +
-                  "bg-[#0a0e17]/60 px-2.5 py-2 text-left transition-colors duration-150 " +
-                  "enabled:hover:bg-white/[0.05] enabled:cursor-pointer disabled:cursor-not-allowed " +
-                  KIND_ACCENT[event.kind] +
-                  (reached ? "" : " opacity-60")
-                }
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[12px] font-medium text-[#E5E7EB]">{KIND_LABEL[event.kind]}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-[#7C8AA5]">{formatTime(event.t)}</span>
-                </div>
-                <p className="truncate text-[11px] text-[#7C8AA5]">{event.detail}</p>
-
-                {/* Tooltip: pure CSS group-hover, no extra state to manage.
-                    Rises above the card since the feed now runs horizontally. */}
-                <div
-                  role="tooltip"
+              <li key={i}>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onScrub(event.t)}
+                  title={event.detail}
                   className={
-                    "pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-max max-w-[220px] -translate-x-1/2 " +
-                    "rounded-md border border-white/10 bg-[#0a0e17] px-2.5 py-1.5 text-[11px] text-[#E5E7EB] " +
-                    "opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100"
+                    "group flex w-full items-baseline gap-2 py-1 text-left transition-opacity " +
+                    "enabled:cursor-pointer enabled:hover:bg-white/[0.03] disabled:cursor-not-allowed " +
+                    (reached ? "opacity-100" : "opacity-45")
                   }
                 >
-                  <span className="font-mono text-[#7DD3FC]">{formatTime(event.t)}</span> — {event.detail}
-                </div>
-              </button>
+                  <span className="shrink-0 text-[#52525B]">[{formatTime(event.t)}]</span>
+                  <span className={KIND_TONE[event.kind]}>{KIND_LABEL[event.kind]}</span>
+                  <span className="truncate text-[#71717A] group-hover:text-[#A1A1AA]">
+                    {event.detail}
+                  </span>
+                </button>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </div>
   );

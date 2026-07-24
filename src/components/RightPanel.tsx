@@ -4,7 +4,7 @@ import { ROUTE_PRESET_LABELS } from "@/lib/routePresets";
 import type { SavedPlaySummary } from "@/lib/savedPlays";
 import type { PlayerDef, RoutePresetId } from "@/lib/types";
 import SavedPlaysList from "./SavedPlaysList";
-import { Button, Panel, Section } from "./ui";
+import { Bento, Button } from "./ui";
 
 export type ActionState =
   | { status: "idle" }
@@ -19,6 +19,9 @@ interface Props {
   drawMode: boolean;
   isPlacingPassTarget: boolean;
   onTogglePlacingPassTarget: () => void;
+  receivers: PlayerDef[];
+  passTargetReceiverId: string | null;
+  onPlanPassTarget: (receiverId: string) => void;
   canUndo: boolean;
   canRedo: boolean;
   disabled: boolean;
@@ -36,19 +39,17 @@ interface Props {
 
 const PRESETS = Object.keys(ROUTE_PRESET_LABELS) as RoutePresetId[];
 
-/** Flat status line under an action button. */
 function Status({ state }: { state: ActionState }) {
   if (state.status === "idle") return null;
   const color =
     state.status === "error"
-      ? "text-[#FCA5A5]"
+      ? "text-rose-300"
       : state.status === "done"
-        ? "text-[#6EE7B7]"
-        : "text-[#7C8AA5]";
-  return <p className={`text-[12px] leading-snug ${color}`}>{state.message}</p>;
+        ? "text-emerald-300/90"
+        : "text-[#A1A1AA]";
+  return <p className={`font-mono text-[11px] leading-snug ${color}`}>{state.message}</p>;
 }
 
-/** A small flat crosshair icon for the Pass Target Tool button. */
 function CrosshairIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
@@ -65,6 +66,9 @@ export default function RightPanel({
   drawMode,
   isPlacingPassTarget,
   onTogglePlacingPassTarget,
+  receivers,
+  passTargetReceiverId,
+  onPlanPassTarget,
   canUndo,
   canRedo,
   disabled,
@@ -80,29 +84,30 @@ export default function RightPanel({
   onDeleteSaved,
 }: Props) {
   const isQB = selected?.id === "QB";
-  // Routes are an offensive concept; the defense runs its coverage instead.
   const canRoute = Boolean(selected && selected.team === "offense") && !disabled;
 
   return (
-    <Panel>
-      <Section title="Active Element">
-        <div className="rounded-xl border border-white/[0.06] bg-[#0F172A]/60 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <div className="flex flex-col gap-3">
+      <Bento title="Active Element">
+        <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
           {selected ? (
             <>
-              <p className="text-[14px] font-semibold text-[#E5E7EB]">
-                {isQB ? "Quarterback Selected" : `${selected.team === "offense" ? "Offense" : "Defense"} — ${selected.label}`}
+              <p className="text-[14px] font-semibold text-[#EDEDED]">
+                {isQB
+                  ? "Quarterback Selected"
+                  : `${selected.team === "offense" ? "Offense" : "Defense"} — ${selected.label}`}
               </p>
               <p
                 className={`mt-1 text-[12px] ${
-                  isQB && !drawMode ? "italic text-[#FB923C]" : "text-[#7C8AA5]"
+                  isQB && !drawMode ? "italic text-amber-500/90" : "text-[#A1A1AA]"
                 }`}
               >
                 {selected.team === "offense"
                   ? drawMode
-                    ? "Draw Route Mode is on — drag from this player to draw their route."
+                    ? "Draw Route Mode — drag from this player to set their path."
                     : isQB
-                      ? "Use the Pass Target Tool below, or click anywhere along a receiver's route to set the pass target directly."
-                      : "Drag to move this player. Press D to draw their route instead."
+                      ? "Pick a receiver below, arm the Pass Target Tool, or click a route on the field."
+                      : "Drag to move. D to draw their route."
                   : "Drag to adjust this defender's alignment."}
               </p>
               {isQB && !drawMode && (
@@ -114,22 +119,38 @@ export default function RightPanel({
                   className="mt-2.5 flex w-full items-center justify-center gap-2"
                 >
                   <CrosshairIcon />
-                  {isPlacingPassTarget ? "Placing Target… (Esc to cancel)" : "Set Pass Target"}
+                  {isPlacingPassTarget ? "Placing Target… (Esc)" : "Set Pass Target"}
                 </Button>
               )}
             </>
           ) : (
             <>
-              <p className="text-[14px] font-semibold text-[#7C8AA5]">No selection</p>
-              <p className="mt-1 text-[12px] text-[#7C8AA5]">
-                Click a player to select them.
-              </p>
+              <p className="text-[14px] font-semibold text-[#A1A1AA]">No selection</p>
+              <p className="mt-1 text-[12px] text-[#A1A1AA]">Click a player to select them.</p>
             </>
           )}
         </div>
-      </Section>
+      </Bento>
 
-      <Section title="Route Presets">
+      <Bento title="Pass Target">
+        <p className="text-[12px] text-[#A1A1AA]">
+          Click a receiver to plan the throw. Click again to clear.
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {receivers.map((r) => (
+            <Button
+              key={r.id}
+              active={passTargetReceiverId === r.id}
+              disabled={disabled}
+              onClick={() => onPlanPassTarget(r.id)}
+            >
+              {r.label}
+            </Button>
+          ))}
+        </div>
+      </Bento>
+
+      <Bento title="Route Presets">
         <div className="grid grid-cols-2 gap-1.5">
           {PRESETS.map((p) => (
             <Button key={p} disabled={!canRoute || isQB} onClick={() => onPreset(p)}>
@@ -142,12 +163,12 @@ export default function RightPanel({
             Clear Route
           </Button>
           <Button disabled={disabled || !hasAnyRoutes} onClick={onResetAllRoutes} variant="danger">
-            Reset All Routes
+            Reset All
           </Button>
         </div>
-      </Section>
+      </Bento>
 
-      <Section title="My Saved Plays">
+      <Bento title="My Saved Plays">
         <SavedPlaysList
           plays={savedPlays}
           activeId={activeSavedId}
@@ -156,12 +177,10 @@ export default function RightPanel({
           onDelete={onDeleteSaved}
         />
         <Status state={saveState} />
-      </Section>
+      </Bento>
 
-      <Section title="Undo / Redo">
+      <Bento title="History">
         <div className="grid grid-cols-2 gap-1.5">
-          {/* aria-label, not title: a bare title becomes the accessible name
-              and would announce these as "Ctrl+Z" / "Ctrl+Y". */}
           <Button disabled={!canUndo || disabled} onClick={onUndo} aria-label="Undo (Ctrl+Z)">
             Undo
           </Button>
@@ -169,8 +188,8 @@ export default function RightPanel({
             Redo
           </Button>
         </div>
-        <p className="text-[11px] text-[#7C8AA5]">Ctrl+Z to undo, Ctrl+Y or Ctrl+Shift+Z to redo.</p>
-      </Section>
-    </Panel>
+        <p className="font-mono text-[10px] text-[#A1A1AA]">⌃Z undo · ⌃Y redo</p>
+      </Bento>
+    </div>
   );
 }

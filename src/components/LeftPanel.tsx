@@ -7,7 +7,7 @@ import {
   FORMATION_LABELS,
 } from "@/lib/formations";
 import type { CoverageId, DefenseFormationId, FormationId } from "@/lib/types";
-import { Badge, Panel, Section, Segmented, Select } from "./ui";
+import { Badge, Bento, Segmented, Select } from "./ui";
 
 interface Props {
   formation: FormationId;
@@ -45,8 +45,8 @@ export default function LeftPanel({
   onTheme,
 }: Props) {
   return (
-    <Panel>
-      <Section title="Offense Formation">
+    <div className="flex flex-col gap-3">
+      <Bento title="Offense Formation">
         <Select
           value={formation}
           disabled={disabled}
@@ -59,9 +59,9 @@ export default function LeftPanel({
             </option>
           ))}
         </Select>
-      </Section>
+      </Bento>
 
-      <Section title="Defense Formation">
+      <Bento title="Defense Formation">
         <Select
           value={defenseFormation}
           disabled={disabled}
@@ -74,9 +74,9 @@ export default function LeftPanel({
             </option>
           ))}
         </Select>
-      </Section>
+      </Bento>
 
-      <Section title="Defensive Coverage">
+      <Bento title="Defensive Coverage">
         <Segmented
           value={coverage}
           disabled={disabled}
@@ -84,27 +84,27 @@ export default function LeftPanel({
           onChange={onCoverage}
           options={COVERAGES.map((c) => ({ value: c, label: COVERAGE_LABELS[c] }))}
         />
-      </Section>
+      </Bento>
 
-      <Section title="Tool">
+      <Bento title="Tool Selection">
         <Segmented
           value={drawMode ? "draw" : "move"}
           disabled={disabled}
           ariaLabel="Interaction tool"
           onChange={(v) => onDrawMode(v === "draw")}
           options={[
-            { value: "move", label: "Move Players" },
+            { value: "move", label: "Move" },
             { value: "draw", label: "Draw Routes" },
           ]}
         />
-        <p className="text-[11px] leading-snug text-[#7C8AA5]">
+        <p className="text-[11px] leading-snug text-[#A1A1AA]">
           {drawMode
-            ? "Drag from a selected offensive player to draw their route. Press D to go back to moving players."
-            : "Drag players to reposition them. Press D to draw routes instead."}
+            ? "Drag from an offensive player to draw their route. D toggles back to move."
+            : "Drag players to reposition. D arms route drawing."}
         </p>
-      </Section>
+      </Bento>
 
-      <Section title="Field Style">
+      <Bento title="Field Style">
         <Segmented
           value={theme}
           disabled={disabled}
@@ -112,12 +112,12 @@ export default function LeftPanel({
           onChange={onTheme}
           options={[
             { value: "turf", label: "Turf" },
-            { value: "chalkboard", label: "Chalkboard" },
+            { value: "chalkboard", label: "Chalk" },
           ]}
         />
-      </Section>
+      </Bento>
 
-      <Section title="Simulation Speed">
+      <Bento title="Sim Speed">
         <div className="flex items-center gap-3">
           <input
             type="range"
@@ -128,11 +128,11 @@ export default function LeftPanel({
             disabled={disabled}
             onChange={(e) => onSpeed(Number(e.target.value))}
             aria-label="Simulation speed"
-            className="h-1.5 flex-1 disabled:cursor-not-allowed disabled:opacity-40"
+            className="h-2.5 flex-1 disabled:cursor-not-allowed disabled:opacity-40"
           />
           <Badge>{speed.toFixed(1)}x</Badge>
         </div>
-      </Section>
-    </Panel>
+      </Bento>
+    </div>
   );
 }

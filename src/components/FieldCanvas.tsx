@@ -16,7 +16,7 @@ import {
   type FieldTheme,
   type View,
 } from "@/lib/field";
-import { flattenPath, nearestOnPath, pointAtT } from "@/lib/geometry";
+import { flattenPath, nearestOnPath, primaryTargetFor } from "@/lib/geometry";
 import { snapshot, type Snapshot } from "@/lib/history";
 import { drawField, drawScene } from "@/lib/render";
 import { buildPresetRoute } from "@/lib/routePresets";
@@ -1274,17 +1274,8 @@ function FieldCanvas(
   const menuSetPrimary = () => {
     if (!menu || !menuCanSetPrimary) return;
     const before = snapshot(play);
-    const route = play.routes[menu.id];
-    let target: PassTarget;
-    if (route && route.length >= 2) {
-      const pt = pointAtT(flattenPath(route), 0.3);
-      target = { x: pt.x, y: pt.y, receiverId: menu.id, t: 0.3 };
-    } else {
-      const p = play.players.find((pp) => pp.id === menu.id)!;
-      target = { x: p.startX, y: p.startY, receiverId: menu.id, t: 0 };
-    }
     onCommit(before);
-    onPlayChange({ ...play, passTarget: target });
+    onPlayChange({ ...play, passTarget: primaryTargetFor(play, menu.id) });
   };
 
   const menuShimmer = () => {
@@ -1329,8 +1320,8 @@ function FieldCanvas(
           draw();
         }}
         className={
-          "block w-full touch-none rounded-xl border border-white/[0.08] " +
-          "shadow-[inset_0_0_20px_rgba(0,0,0,0.35)]"
+          "block w-full touch-none rounded-2xl border border-white/10 " +
+          "shadow-[inset_0_1px_0_rgba(255,255,255,0.04),inset_0_0_24px_rgba(0,0,0,0.45)]"
         }
         style={{ cursor: canvasCursor }}
       />
