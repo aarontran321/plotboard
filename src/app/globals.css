@@ -24,6 +24,15 @@
   --hairline: rgba(255, 255, 255, 0.1);
 }
 
+/* Native <option> popups ignore the parent <select>'s transparent
+ * background and default to the OS's white dropdown surface, which made the
+ * light --fg text on offense/defense/coverage selects unreadable. Force a
+ * dark surface so the text colour actually has contrast. */
+select option {
+  background-color: #141414;
+  color: var(--fg);
+}
+
 body {
   background:
     radial-gradient(ellipse 900px 600px at 8% 0%, rgba(37, 99, 235, 0.1), transparent 55%),

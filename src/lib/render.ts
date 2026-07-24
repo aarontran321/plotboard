@@ -479,9 +479,13 @@ function drawBallBadge(ctx: Ctx, cx: number, cy: number, r: number) {
   ctx.quadraticCurveTo(0, -br * 1.3, br * 0.85, 0);
   ctx.quadraticCurveTo(0, br * 1.3, -br * 0.85, 0);
   ctx.closePath();
-  ctx.fillStyle = COLORS.ball;
+  const badgeGrad = ctx.createRadialGradient(-br * 0.3, -br * 0.5, br * 0.1, 0, 0, br * 1.1);
+  badgeGrad.addColorStop(0, "#9C6A3F");
+  badgeGrad.addColorStop(0.55, COLORS.ball);
+  badgeGrad.addColorStop(1, "#3A2412");
+  ctx.fillStyle = badgeGrad;
   ctx.fill();
-  ctx.lineWidth = 0.8;
+  ctx.lineWidth = 0.9;
   ctx.strokeStyle = "#F8FAFC";
   ctx.stroke();
   ctx.restore();
@@ -660,21 +664,43 @@ export function drawBall(ctx: Ctx, v: View, ball: BallState) {
   ctx.translate(cx, drawY);
   ctx.rotate(angle);
 
-  // Two arcs meeting at points give the football silhouette. Solid dark
-  // brown, no outline — a flat, realistic leather colour rather than a
-  // stroked cartoon shape.
+  // Two arcs meeting at points give the football silhouette.
   ctx.beginPath();
   ctx.moveTo(-rx, 0);
   ctx.quadraticCurveTo(0, -ry * 1.6, rx, 0);
   ctx.quadraticCurveTo(0, ry * 1.6, -rx, 0);
   ctx.closePath();
-  ctx.fillStyle = COLORS.ball;
-  ctx.fill();
 
-  // Laces.
+  // Drop shadow underneath, then a radial gradient (light top-left, dark
+  // bottom-right) so the leather reads as a lit 3D object instead of a flat
+  // silhouette.
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 5;
+  ctx.shadowOffsetY = 2;
+  const grad = ctx.createRadialGradient(-rx * 0.3, -ry * 0.6, ry * 0.15, 0, 0, rx * 1.1);
+  grad.addColorStop(0, "#9C6A3F");
+  grad.addColorStop(0.55, COLORS.ball);
+  grad.addColorStop(1, "#3A2412");
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+
+  // White outline so the ball stays legible against both the field and the
+  // dark player tokens it flies over.
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = "#F8FAFC";
+  ctx.stroke();
+
+  // Laces: a spine with a few cross-ties, like real stitching.
   ctx.beginPath();
-  ctx.moveTo(-rx * 0.3, 0);
-  ctx.lineTo(rx * 0.3, 0);
+  ctx.moveTo(-rx * 0.32, 0);
+  ctx.lineTo(rx * 0.32, 0);
+  for (let i = -1; i <= 1; i++) {
+    const lx = rx * 0.32 * i * 0.65;
+    ctx.moveTo(lx, -ry * 0.22);
+    ctx.lineTo(lx, ry * 0.22);
+  }
   ctx.lineWidth = 1;
   ctx.strokeStyle = "#F8FAFC";
   ctx.stroke();
